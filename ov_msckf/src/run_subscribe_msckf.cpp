@@ -89,6 +89,7 @@ int main(int argc, char **argv) {
   viz->setup_subscribers(parser);
 #elif ROS_AVAILABLE == 2
   viz = std::make_shared<ROS2Visualizer>(node, sys);
+  sys->set_ros_visualizer(viz);
   viz->setup_subscribers(parser);
 #endif
 

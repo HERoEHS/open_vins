@@ -20,6 +20,8 @@
  */
 
 #include "State.h"
+#include "utils/colors.h"
+#include "utils/print.h"
 
 using namespace ov_core;
 using namespace ov_type;
@@ -36,7 +38,7 @@ State::State(StateOptions &options) {
   _imu->set_local_id(current_id);
   _variables.push_back(_imu);
   current_id += _imu->size();
-
+  printf(RED "IMU index: %d to %d\n" RESET, current_id - _imu->size(), current_id - 1);
   // Append the imu intrinsics to the state and covariance
   // NOTE: these need to be right "next" to the IMU state in the covariance
   // NOTE: since if calibrating these will evolve / be correlated during propagation
@@ -68,17 +70,20 @@ State::State(StateOptions &options) {
     _calib_imu_dw->set_local_id(current_id);
     _variables.push_back(_calib_imu_dw);
     current_id += _calib_imu_dw->size();
+    printf(RED "Gyroscope dw index: %d to %d\n" RESET, current_id - _calib_imu_dw->size(), current_id - 1);
 
     // Accelerometer da
     _calib_imu_da->set_local_id(current_id);
     _variables.push_back(_calib_imu_da);
     current_id += _calib_imu_da->size();
+    printf(RED "Accelerometer da index: %d to %d\n" RESET, current_id - _calib_imu_da->size(), current_id - 1);
 
     // Gyroscope gravity sensitivity
     if (options.do_calib_imu_g_sensitivity) {
       _calib_imu_tg->set_local_id(current_id);
       _variables.push_back(_calib_imu_tg);
       current_id += _calib_imu_tg->size();
+      printf(RED "Gyroscope gravity sensitivity index: %d to %d\n" RESET, current_id - _calib_imu_tg->size(), current_id - 1);
     }
 
     // If kalibr model, R_GYROtoIMU is calibrated
@@ -87,10 +92,12 @@ State::State(StateOptions &options) {
       _calib_imu_GYROtoIMU->set_local_id(current_id);
       _variables.push_back(_calib_imu_GYROtoIMU);
       current_id += _calib_imu_GYROtoIMU->size();
+      printf(RED "R_GYROtoIMU index: %d to %d\n" RESET, current_id - _calib_imu_GYROtoIMU->size(), current_id - 1);
     } else {
       _calib_imu_ACCtoIMU->set_local_id(current_id);
       _variables.push_back(_calib_imu_ACCtoIMU);
       current_id += _calib_imu_ACCtoIMU->size();
+      printf(RED "R_ACCtoIMU index: %d to %d\n" RESET, current_id - _calib_imu_ACCtoIMU->size(), current_id - 1);
     }
   }
 
@@ -100,6 +107,7 @@ State::State(StateOptions &options) {
     _calib_dt_CAMtoIMU->set_local_id(current_id);
     _variables.push_back(_calib_dt_CAMtoIMU);
     current_id += _calib_dt_CAMtoIMU->size();
+    printf(RED "Camera to IMU time offset index: %d to %d\n" RESET, current_id - _calib_dt_CAMtoIMU->size(), current_id - 1);
   }
 
   // Loop through each camera and create extrinsic and intrinsics
@@ -120,6 +128,7 @@ State::State(StateOptions &options) {
       pose->set_local_id(current_id);
       _variables.push_back(pose);
       current_id += pose->size();
+      printf(RED "Camera %d IMU pose index: %d to %d\n" RESET, i, current_id - pose->size(), current_id - 1);
     }
 
     // If calibrating camera intrinsics, add to variables
@@ -127,6 +136,7 @@ State::State(StateOptions &options) {
       intrin->set_local_id(current_id);
       _variables.push_back(intrin);
       current_id += intrin->size();
+      printf(RED "Camera %d intrinsics index: %d to %d\n" RESET, i, current_id - intrin->size(), current_id - 1);
     }
   }
 

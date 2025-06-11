@@ -150,15 +150,24 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
   // Get covariance of the involved terms
   Eigen::MatrixXd P_small = StateHelper::get_marginal_covariance(state, H_order);
 
+  // 1. 측정 잔차 공분산 계산
+  // S = H*P*H' + R
+  // H: 측정 행렬
+  // P: 상태 공분산
+  // R: 측정 노이즈 공분산
   // Residual covariance S = H*Cov*H' + R
   Eigen::MatrixXd S(R.rows(), R.rows());
   S.triangularView<Eigen::Upper>() = H * P_small * H.transpose();
   S.triangularView<Eigen::Upper>() += R;
   // Eigen::MatrixXd S = H * P_small * H.transpose() + R;
-
+  
+  // 2. S의 역행렬 계산 (더 안정적인 방법 사용)
   // Invert our S (should we use a more stable method here??)
   Eigen::MatrixXd Sinv = Eigen::MatrixXd::Identity(R.rows(), R.rows());
   S.selfadjointView<Eigen::Upper>().llt().solveInPlace(Sinv);
+  
+  // 3. 칼만 게인 계산
+  // K = P*H'*S^(-1)
   Eigen::MatrixXd K = M_a * Sinv.selfadjointView<Eigen::Upper>();
   // Eigen::MatrixXd K = M_a * S.inverse();
 
@@ -371,6 +380,12 @@ std::shared_ptr<Type> StateHelper::clone(std::shared_ptr<State> state, std::shar
     state->_Cov.block(new_loc, new_loc, total_size, total_size) = state->_Cov.block(old_loc, old_loc, total_size, total_size);
     state->_Cov.block(0, new_loc, old_size, total_size) = state->_Cov.block(0, old_loc, old_size, total_size);
     state->_Cov.block(new_loc, 0, total_size, old_size) = state->_Cov.block(old_loc, 0, total_size, old_size);
+
+    // Print the indices and values being added to the covariance
+    // PRINT_INFO("Adding covariance elements for cloned variable at indices (%d, %d) to (%d, %d)\n", old_loc, old_loc, new_loc, new_loc);
+    // PRINT_INFO("Covariance block at (%d, %d) to (%d, %d) is being copied\n", old_loc, old_loc, new_loc, new_loc);
+    // PRINT_INFO("Covariance block at (%d, %d) to (%d, %d) is being copied\n", 0, old_loc, old_size, old_loc);
+    // PRINT_INFO("Covariance block at (%d, %d) to (%d, %d) is being copied\n", old_loc, 0, old_loc, old_size);
 
     // Create clone from the type being cloned
     new_clone = type_check->clone();

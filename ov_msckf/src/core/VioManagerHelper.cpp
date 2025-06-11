@@ -222,14 +222,42 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
     // IMU historical clone
     Eigen::Matrix3d R_GtoI = state->_clones_IMU.at(active_tracks_time)->Rot();
     Eigen::Vector3d p_IinG = state->_clones_IMU.at(active_tracks_time)->pos();
-
+    PRINT_INFO(BOLDCYAN "[VIO]: R_GtoI rotation matrix:\n" RESET);
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_GtoI(0,0), R_GtoI(0,1), R_GtoI(0,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_GtoI(1,0), R_GtoI(1,1), R_GtoI(1,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_GtoI(2,0), R_GtoI(2,1), R_GtoI(2,2));
     // Calibration for this cam_id
     Eigen::Matrix3d R_ItoC = state->_calib_IMUtoCAM.at(cam_id)->Rot();
     Eigen::Vector3d p_IinC = state->_calib_IMUtoCAM.at(cam_id)->pos();
-
+    PRINT_INFO(BOLDCYAN "[VIO]: R_ItoC rotation matrix:\n" RESET);
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_ItoC(0,0), R_ItoC(0,1), R_ItoC(0,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_ItoC(1,0), R_ItoC(1,1), R_ItoC(1,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_ItoC(2,0), R_ItoC(2,1), R_ItoC(2,2));
     // Convert current CAMERA position relative to global
     Eigen::Matrix3d R_GtoCi = R_ItoC * R_GtoI;
+    PRINT_INFO(BOLDCYAN "[VIO]: R_GtoCi rotation matrix:\n" RESET);
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_GtoCi(0,0), R_GtoCi(0,1), R_GtoCi(0,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_GtoCi(1,0), R_GtoCi(1,1), R_GtoCi(1,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET, 
+              R_GtoCi(2,0), R_GtoCi(2,1), R_GtoCi(2,2));
     Eigen::Vector3d p_CiinG = p_IinG - R_GtoCi.transpose() * p_IinC;
+    PRINT_INFO(BOLDCYAN "[VIO]: R_GtoCi.transpose():\n" RESET);
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET,
+              R_GtoCi.transpose()(0,0), R_GtoCi.transpose()(0,1), R_GtoCi.transpose()(0,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET,
+              R_GtoCi.transpose()(1,0), R_GtoCi.transpose()(1,1), R_GtoCi.transpose()(1,2));
+    PRINT_INFO(BOLDCYAN "[VIO]: [%.4f, %.4f, %.4f]\n" RESET,
+              R_GtoCi.transpose()(2,0), R_GtoCi.transpose()(2,1), R_GtoCi.transpose()(2,2));  
+    
+    
 
     // Loop through each measurement
     assert(last_obs.find(cam_id) != last_obs.end());

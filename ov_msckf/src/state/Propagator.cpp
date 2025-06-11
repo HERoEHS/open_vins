@@ -395,6 +395,15 @@ std::vector<ov_core::ImuData> Propagator::select_imu_readings(const std::vector<
 void Propagator::predict_and_compute(std::shared_ptr<State> state, const ov_core::ImuData &data_minus, const ov_core::ImuData &data_plus,
                                      Eigen::MatrixXd &F, Eigen::MatrixXd &Qd) {
 
+  // PRINT_DEBUG(BOLDCYAN "[IMU] Raw measurements:\n" RESET);
+  // PRINT_DEBUG(BOLDCYAN "  acc1: [%.3f, %.3f, %.3f]\n" RESET, 
+  //           data_minus.am(0), data_minus.am(1), data_minus.am(2));
+  // PRINT_DEBUG(BOLDCYAN "  acc2: [%.3f, %.3f, %.3f]\n" RESET, 
+  //           data_plus.am(0), data_plus.am(1), data_plus.am(2));
+  // PRINT_DEBUG(BOLDCYAN "  gyro1: [%.3f, %.3f, %.3f]\n" RESET, 
+  //           data_minus.wm(0), data_minus.wm(1), data_minus.wm(2));
+  // PRINT_DEBUG(BOLDCYAN "  gyro2: [%.3f, %.3f, %.3f]\n" RESET, 
+  //           data_plus.wm(0), data_plus.wm(1), data_plus.wm(2));
   // Time elapsed over interval
   double dt = data_plus.timestamp - data_minus.timestamp;
   // assert(data_plus.timestamp>data_minus.timestamp);
@@ -428,6 +437,12 @@ void Propagator::predict_and_compute(std::shared_ptr<State> state, const ov_core
   w_hat2 = R_GYROtoIMU * Dw * w_hat2;
   w_hat_avg = R_GYROtoIMU * Dw * w_hat_avg;
 
+  // PRINT_DEBUG(BOLDCYAN "[IMU] Corrected measurements:\n" RESET);
+  // PRINT_DEBUG(BOLDCYAN "  acc1: [%.3f, %.3f, %.3f]\n" RESET, 
+  //           a_hat1(0), a_hat1(1), a_hat1(2));
+  // PRINT_DEBUG(BOLDCYAN "  acc2: [%.3f, %.3f, %.3f]\n" RESET, 
+  //           a_hat2(0), a_hat2(1), a_hat2(2));
+            
   // Pre-compute some analytical values for the mean and covariance integration
   Eigen::Matrix<double, 3, 18> Xi_sum = Eigen::Matrix<double, 3, 18>::Zero(3, 18);
   if (state->_options.integration_method == StateOptions::IntegrationMethod::RK4 ||

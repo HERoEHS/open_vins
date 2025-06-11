@@ -136,39 +136,25 @@ public:
    * @param R_GtoI Rotation from the arbitrary inertial reference frame to this gravity vector
    */
   static void gram_schmidt(const Eigen::Vector3d &gravity_inI, Eigen::Matrix3d &R_GtoI) {
-
-    // This will find an orthogonal vector to gravity which is our local z-axis
-    // We need to ensure we normalize after each one such that we obtain unit vectors
-    Eigen::Vector3d z_axis = gravity_inI / gravity_inI.norm();
-    Eigen::Vector3d x_axis, y_axis;
-    Eigen::Vector3d e_1(1.0, 0.0, 0.0);
-    Eigen::Vector3d e_2(0.0, 1.0, 0.0);
-    double inner1 = e_1.dot(z_axis) / z_axis.norm();
-    double inner2 = e_2.dot(z_axis) / z_axis.norm();
-    if (fabs(inner1) < fabs(inner2)) {
-      x_axis = z_axis.cross(e_1);
+      // 1. z축은 중력 방향으로 고정
+      Eigen::Vector3d z_axis = gravity_inI / gravity_inI.norm();
+      
+      // 2. x축은 world 좌표계의 x축과 동일하게 설정
+      Eigen::Vector3d x_axis(1.0, 0.0, 0.0);  // world x축
+      // 중력 방향 성분 제거
+      x_axis = x_axis - z_axis * z_axis.dot(x_axis);
       x_axis = x_axis / x_axis.norm();
-      y_axis = z_axis.cross(x_axis);
+      
+      // 3. y축은 z축과 x축의 외적으로 계산
+      Eigen::Vector3d y_axis = z_axis.cross(x_axis);
       y_axis = y_axis / y_axis.norm();
-    } else {
-      x_axis = z_axis.cross(e_2);
-      x_axis = x_axis / x_axis.norm();
-      y_axis = z_axis.cross(x_axis);
-      y_axis = y_axis / y_axis.norm();
-    }
 
-    // Original method
-    // https://en.wikipedia.org/wiki/Gram%E2%80%93Schmidt_process
-    // x_axis = e_1 - z_axis * z_axis.transpose() * e_1;
-    // x_axis = x_axis / x_axis.norm();
-    // y_axis = ov_core::skew_x(z_axis) * x_axis;
-    // y_axis = y_axis / y_axis.norm();
-
-    // Rotation from our global (where gravity is only along the z-axis) to the local one
-    R_GtoI.block(0, 0, 3, 1) = x_axis;
-    R_GtoI.block(0, 1, 3, 1) = y_axis;
-    R_GtoI.block(0, 2, 3, 1) = z_axis;
+      // 회전 행렬 구성
+      R_GtoI.block(0, 0, 3, 1) = x_axis;  // world x축과 동일
+      R_GtoI.block(0, 1, 3, 1) = y_axis;  // world y축과 동일
+      R_GtoI.block(0, 2, 3, 1) = z_axis;  // 중력 방향
   }
+  /**
 
   /**
    * @brief Compute coefficients for the constrained optimization quadratic problem.
