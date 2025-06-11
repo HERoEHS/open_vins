@@ -62,18 +62,21 @@ UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &
   }
 }
 
-bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timestamp) {
+ZUPTResult UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timestamp) {
+  ZUPTResult zupt_result;
 
   // Return if we don't have any imu data yet
   if (imu_data.empty()) {
     last_zupt_state_timestamp = 0.0;
-    return false;
+    zupt_result.is_zupt = false;
+    return zupt_result;
   }
 
   // Return if the state is already at the desired time
   if (state->_timestamp == timestamp) {
     last_zupt_state_timestamp = 0.0;
-    return false;
+    zupt_result.is_zupt = false;
+    return zupt_result;
   }
 
   // Set the last time offset value if we have just started the system up
@@ -103,7 +106,8 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   if (imu_recent.size() < 2) {
     PRINT_WARNING(RED "[ZUPT]: There are no IMU data to check for zero velocity with!!\n" RESET);
     last_zupt_state_timestamp = 0.0;
-    return false;
+    zupt_result.is_zupt = false;
+    return zupt_result;
   }
 
   // If we should integrate the acceleration and say the velocity should be zero
@@ -182,9 +186,12 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // Compress the system (we should be over determined)
   UpdaterHelper::measurement_compress_inplace(H, res);
   if (H.rows() < 1) {
-    return false;
+    PRINT_WARNING(YELLOW "[ZUPT]: No valid measurements to perform update\n" RESET);
+    zupt_result.is_zupt = false;
+    return zupt_result;
   }
-
+  zupt_result.velocity_norm = state->_imu->vel().norm();
+  zupt_result.velocity_threshold = _zupt_max_velocity;
   // Multiply our noise matrix by a fixed amount
   // We typically need to treat the IMU as being "worst" to detect / not become overconfident
   Eigen::MatrixXd R = _zupt_noise_multiplier * Eigen::MatrixXd::Identity(res.rows(), res.rows());
@@ -215,6 +222,9 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     PRINT_WARNING(YELLOW "[ZUPT]: chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
   }
 
+  zupt_result.chi2_value = chi2;
+  zupt_result.chi2_threshold = _options.chi2_multipler * chi2_check;
+
   // Check if the image disparity
   bool disparity_passed = false;
   if (override_with_disparity_check) {
@@ -234,19 +244,24 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     } else {
       PRINT_DEBUG(YELLOW "[ZUPT]: failed disparity (%.3f > %.3f, %d features)\n" RESET, disp_avg, _zupt_max_disparity, (int)num_features);
     }
+    zupt_result.disparity_value = disp_avg;
+    zupt_result.disparity_passed = disparity_passed;
+    zupt_result.disparity_threshold = _zupt_max_disparity;
   }
+
 
   // Check if we are currently zero velocity
   // We need to pass the chi2 and not be above our velocity threshold
   if (!disparity_passed && (chi2 > _options.chi2_multipler * chi2_check || state->_imu->vel().norm() > _zupt_max_velocity)) {
     last_zupt_state_timestamp = 0.0;
     last_zupt_count = 0;
-    PRINT_DEBUG(YELLOW "[ZUPT]: rejected |v_IinG| = %.3f (chi2 %.3f > %.3f)\n" RESET, state->_imu->vel().norm(), chi2,
+    PRINT_DEBUG(YELLOW "[ZUPT]: rejected |v_IinG| = %.3f > %.3f, (chi2 %.3f > %.3f)\n" RESET, state->_imu->vel().norm(), _zupt_max_velocity, chi2,
                 _options.chi2_multipler * chi2_check);
-    return false;
+    zupt_result.is_zupt = false;
+    return zupt_result;
   }
   PRINT_INFO(CYAN "[ZUPT]: accepted |v_IinG| = %.3f (chi2 %.3f < %.3f)\n" RESET, state->_imu->vel().norm(), chi2,
-             _options.chi2_multipler * chi2_check);
+             _options.chi2_multipler * chi2_check); 
 
   // Do our update, only do this update if we have previously detected
   // If we have succeeded, then we should remove the current timestamp feature tracks
@@ -326,5 +341,6 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // Finally return
   last_zupt_state_timestamp = timestamp;
   last_zupt_count++;
-  return true;
+  zupt_result.is_zupt = true;
+  return zupt_result;
 }

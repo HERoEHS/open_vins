@@ -39,6 +39,18 @@ class Landmark;
 
 namespace ov_msckf {
 
+struct ZUPTResult {
+  bool is_zupt = false;
+  double velocity_norm = 0.0;
+  double velocity_threshold = 0.0;
+  double chi2_value = 0.0;
+  double chi2_threshold = 0.0;
+  bool disparity_passed = false;
+  double disparity_value = 0.0;
+  double disparity_threshold = 0.0;
+  int num_features = 0;
+};
+
 class State;
 class Propagator;
 
@@ -65,6 +77,7 @@ public:
    * @param zupt_noise_multiplier Multiplier of our IMU noise matrix (default should be 1.0)
    * @param zupt_max_disparity Max disparity we should consider to do a update with
    */
+
   UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &noises, std::shared_ptr<ov_core::FeatureDatabase> db,
                       std::shared_ptr<Propagator> prop, double gravity_mag, double zupt_max_velocity, double zupt_noise_multiplier,
                       double zupt_max_disparity);
@@ -112,8 +125,9 @@ public:
    * @param timestamp Next camera timestamp we want to see if we should propagate to.
    * @return True if the system is currently at zero velocity
    */
-  bool try_update(std::shared_ptr<State> state, double timestamp);
-
+  ZUPTResult try_update(std::shared_ptr<State> state, double timestamp);
+  
+  
 protected:
   /// Options used during update (chi2 multiplier)
   UpdaterOptions _options;
