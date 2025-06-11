@@ -40,6 +40,8 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
+#include "std_msgs/msg/bool.hpp"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -58,6 +60,7 @@
 namespace ov_core {
 class YamlParser;
 struct CameraData;
+struct ImuData;
 } // namespace ov_core
 
 namespace ov_msckf {
@@ -75,7 +78,7 @@ class Simulator;
  * - Our different features (SLAM, MSCKF, ARUCO)
  * - Groundtruth trajectory if we have it
  */
-class ROS2Visualizer {
+class ROS2Visualizer : public std::enable_shared_from_this<ROS2Visualizer> {
 
 public:
   /**
@@ -119,6 +122,10 @@ public:
   void callback_stereo(const sensor_msgs::msg::Image::ConstSharedPtr msg0, const sensor_msgs::msg::Image::ConstSharedPtr msg1, int cam_id0,
                        int cam_id1);
 
+  void imu_slot_callback();
+
+  void publish_zupt_status(bool zupt_active);
+
 protected:
   /// Publish the current state
   void publish_state();
@@ -144,6 +151,7 @@ protected:
   /// Simulator (is nullptr if we are not sim'ing)
   std::shared_ptr<Simulator> _sim;
 
+  
   // Our publishers
   image_transport::Publisher it_pub_tracks, it_pub_loop_img_depth, it_pub_loop_img_depth_color;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_poseimu;
@@ -153,7 +161,11 @@ protected:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_loop_pose, pub_loop_extrinsic;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr pub_loop_point;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_loop_intrinsics;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_zupt_status;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_interp_pub;
   std::shared_ptr<tf2_ros::TransformBroadcaster> mTfBr;
+
+  rclcpp::TimerBase::SharedPtr imu_timer;
 
   // Our subscribers and camera synchronizers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
@@ -188,6 +200,9 @@ protected:
   std::deque<ov_core::CameraData> camera_queue;
   std::mutex camera_queue_mtx;
 
+  std::deque<ov_core::ImuData> imu_queue;
+  std::mutex imu_queue_mtx;
+  
   // Last camera message timestamps we have received (mapped by cam id)
   std::map<int, double> camera_last_timestamp;
 

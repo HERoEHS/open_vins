@@ -80,6 +80,11 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   it_pub_loop_img_depth = it.advertise("loop_depth", 2);
   it_pub_loop_img_depth_color = it.advertise("loop_depth_colored", 2);
 
+  pub_zupt_status = node->create_publisher<std_msgs::msg::Bool>("zupt_status", 2);
+
+  rclcpp::QoS qos_reliable(rclcpp::KeepLast(1000));
+  qos_reliable.reliable();
+  imu_interp_pub = node->create_publisher<sensor_msgs::msg::Imu>("imu_interp", qos_reliable);
   // option to enable publishing of global to IMU transformation
   if (node->has_parameter("publish_global_to_imu_tf")) {
     node->get_parameter<bool>("publish_global_to_imu_tf", publish_global2imu_tf);
@@ -160,6 +165,13 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   }
 }
 
+void ROS2Visualizer::publish_zupt_status(bool zupt_active) 
+{
+    std_msgs::msg::Bool msg;
+    msg.data = zupt_active;
+    pub_zupt_status->publish(msg);
+}
+
 void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> parser) {
 
   // We need a valid parser
@@ -170,10 +182,15 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
   _node->declare_parameter<std::string>("topic_imu", "/imu0");
   _node->get_parameter("topic_imu", topic_imu);
   parser->parse_external("relative_config_imu", "imu0", "rostopic", topic_imu);
-  sub_imu = _node->create_subscription<sensor_msgs::msg::Imu>(topic_imu, rclcpp::SensorDataQoS(),
-                                                              std::bind(&ROS2Visualizer::callback_inertial, this, std::placeholders::_1));
-  PRINT_INFO("subscribing to IMU: %s\n", topic_imu.c_str());
+  // sub_imu = _node->create_subscription<sensor_msgs::msg::Imu>(topic_imu, rclcpp::SensorDataQoS(),
+                                                              // std::bind(&ROS2Visualizer::callback_inertial, this, std::placeholders::_1));
+  imu_timer = _node->create_wall_timer(std::chrono::milliseconds(5), std::bind(&ROS2Visualizer::imu_slot_callback, this));
+  
+  rclcpp::QoS qos_reliable(rclcpp::KeepLast(1000));
+  qos_reliable.reliable();
 
+  sub_imu = _node->create_subscription<sensor_msgs::msg::Imu>(topic_imu, qos_reliable, std::bind(&ROS2Visualizer::callback_inertial, this, std::placeholders::_1));
+  PRINT_INFO("subscribing to IMU: %s\n", topic_imu.c_str());
   // Logic for sync stereo subscriber
   // https://answers.ros.org/question/96346/subscribe-to-two-image_raws-with-one-function/?answer=96491#post-id-96491
   if (_app->get_params().state_options.num_cameras == 2) {
@@ -285,7 +302,7 @@ void ROS2Visualizer::visualize_odometry(double timestamp) {
     // Our odometry message
     nav_msgs::msg::Odometry odomIinM;
     odomIinM.header.stamp = ROSVisualizerHelper::get_time_from_seconds(timestamp);
-    odomIinM.header.frame_id = "global";
+    odomIinM.header.frame_id = "odom";
 
     // The POSE component (orientation and position)
     odomIinM.pose.pose.orientation.x = state_plus(0);
@@ -331,7 +348,7 @@ void ROS2Visualizer::visualize_odometry(double timestamp) {
   odom_pose->set_value(state_plus.block(0, 0, 7, 1));
   geometry_msgs::msg::TransformStamped trans = ROSVisualizerHelper::get_stamped_transform_from_pose(_node, odom_pose, false);
   trans.header.stamp = _node->now();
-  trans.header.frame_id = "global";
+  trans.header.frame_id = "odom";
   trans.child_frame_id = "imu";
   if (publish_global2imu_tf) {
     mTfBr->sendTransform(trans);
@@ -347,6 +364,24 @@ void ROS2Visualizer::visualize_odometry(double timestamp) {
       mTfBr->sendTransform(trans_calib);
     }
   }
+  // Eigen::MatrixXd cov = ov_msckf::StateHelper::get_full_covariance(state);
+  // Eigen::VectorXd diags = cov.diagonal();
+  // PRINT_INFO("Covariance diagonal size: %ld", diags.size());
+
+  // if (diags.size() == 0) {
+  //     PRINT_WARNING("Covariance diagonal size is 0");
+  //     return;
+  // }
+
+  // int N = std::min(30, (int)diags.size());
+
+  // std_msgs::msg::Float64MultiArray msg;
+  // msg.data.resize(N);
+  // for (int i = 0; i < N; i++) {
+  //     msg.data[i] = diags(i);
+  // }
+
+  // cov_pub->publish(msg);
 }
 
 void ROS2Visualizer::visualize_final() {
@@ -436,16 +471,103 @@ void ROS2Visualizer::visualize_final() {
 }
 
 void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr msg) {
-
-  // convert into correct format
+  // 1. 메시지 포맷 변환
   ov_core::ImuData message;
   message.timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
-  message.wm << msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z;
-  message.am << msg->linear_acceleration.x, msg->linear_acceleration.y, msg->linear_acceleration.z;
+  // message.wm << msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z;
+  // message.am << msg->linear_acceleration.x, msg->linear_acceleration.y, msg->linear_acceleration.z;
+  message.wm << 0, 0, msg->angular_velocity.z;
+  message.am << msg->linear_acceleration.x, 0, 9.80665;
+  std::lock_guard<std::mutex> lck(imu_queue_mtx);
+  if (imu_queue.empty()) {
+    // PRINT_INFO(RED "[IMU Grab] IMU buffer empty, first message: %.6f\n" RESET, message.timestamp);
+    imu_queue.push_back(message);
+    return;
+  }
+  // PRINT_INFO(RED "[IMU Grab] IMU buffer timestamp: %.6f, queue timestamp: %.6f\n" RESET, message.timestamp, imu_queue.back().timestamp);
+  // 현재 데이터가 큐의 마지막 데이터보다 크면 큐에 추가
+  if (imu_queue.back().timestamp < message.timestamp) {
+    imu_queue.push_back(message);
+  } 
+}
 
-  // send it to our VIO system
-  _app->feed_measurement_imu(message);
-  visualize_odometry(message.timestamp);
+void ROS2Visualizer::imu_slot_callback() {
+  static double last_slot_time = -1.0;
+  const double target_dt = 0.005; // 5ms
+  
+  // PRINT_DEBUG(RED "[IMU Grab] last_slot_time : %.6f\n" RESET, last_slot_time);
+  std::lock_guard<std::mutex> lck(imu_queue_mtx);
+  if (imu_queue.size() < 2)
+  {
+    // PRINT_DEBUG(RED "[IMU Grab Warning] No IMU data ,SIZE: %d\n" RESET, imu_queue.size());
+    return;
+  }
+    
+  // 최초 슬롯 시간 초기화
+  if (last_slot_time < 0) {
+    // PRINT_DEBUG(RED "[IMU Grab] First slot time: %.6f\n" RESET, imu_queue.front().timestamp);
+    last_slot_time = imu_queue.front().timestamp;
+    last_slot_time += target_dt;
+    return;
+  }
+
+  // 슬롯 시간이 되었는지 확인
+  double current_imu_time = imu_queue.back().timestamp;
+  if (current_imu_time < last_slot_time)
+  {
+    // PRINT_DEBUG(RED "[IMU Grab Warning] waiting target %.6f, current %.6f\n" RESET, last_slot_time + target_dt, current_imu_time);
+    return;
+  }
+
+  // 보간용 구간 찾기: [it_before, it_after] 구간 내에 slot time이 있는지 확인 slot에 넣을 timestamp 보다는 이후 시간
+  auto it_after = std::find_if(imu_queue.begin(), imu_queue.end(), [&](const auto& data)
+  {
+    return data.timestamp >= last_slot_time;
+  }); 
+
+  auto it_before = std::prev(it_after);
+  // PRINT_DEBUG(RED "[IMU Grab] it_first: %.6f, it_before: %.6f, it_after: %.6f, last_slot_time: %.6f\n" RESET, imu_queue.front().timestamp, it_before->timestamp, it_after->timestamp, last_slot_time);
+  
+  double t0 = it_before->timestamp;
+  double t1 = it_after->timestamp;
+  double alpha = (last_slot_time - t0) / (t1 - t0);
+
+  //보간 수행
+  ov_core::ImuData interpolated;
+  interpolated.timestamp = last_slot_time;
+  interpolated.wm = (1.0 - alpha) * it_before->wm + alpha * it_after->wm;
+  interpolated.am = (1.0 - alpha) * it_before->am + alpha * it_after->am;
+
+  // imu feeding
+  _app->feed_measurement_imu(interpolated);
+  visualize_odometry(interpolated.timestamp);
+
+  // 퍼블리시
+  // auto imu_msg = std::make_unique<sensor_msgs::msg::Imu>();  // 힙에 생성 (권장)
+  
+  // // interpolated의 timestamp 사용
+  // imu_msg->header.stamp.sec = static_cast<int32_t>(interpolated.timestamp);
+  // imu_msg->header.stamp.nanosec = static_cast<uint32_t>((interpolated.timestamp - static_cast<int32_t>(interpolated.timestamp)) * 1e9);
+   
+  // imu_msg->header.frame_id = "odom";
+  
+  // // IMU 데이터 설정
+  // imu_msg->angular_velocity.x = interpolated.wm(0);
+  // imu_msg->angular_velocity.y = interpolated.wm(1);
+  // imu_msg->angular_velocity.z = interpolated.wm(2);
+  // imu_msg->linear_acceleration.x = interpolated.am(0);
+  // imu_msg->linear_acceleration.y = interpolated.am(1);
+  // imu_msg->linear_acceleration.z = interpolated.am(2);
+  
+  // // 발행 (std::move 사용)
+  // imu_interp_pub->publish(std::move(imu_msg));
+
+  // 사용한 데이터까지 삭제
+  if (it_before != imu_queue.end() && std::next(it_before) != imu_queue.end()) 
+  {
+    imu_queue.erase(imu_queue.begin(), it_before);
+  }
+  last_slot_time += target_dt;
 
   // If the processing queue is currently active / running just return so we can keep getting measurements
   // Otherwise create a second thread to do our update in an async manor
@@ -471,7 +593,7 @@ void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr ms
 
       // Loop through our queue and see if we are able to process any of our camera measurements
       // We are able to process if we have at least one IMU measurement greater than the camera time
-      double timestamp_imu_inC = message.timestamp - _app->get_state()->_calib_dt_CAMtoIMU->value()(0);
+      double timestamp_imu_inC = interpolated.timestamp - _app->get_state()->_calib_dt_CAMtoIMU->value()(0);
       while (!camera_queue.empty() && camera_queue.at(0).timestamp < timestamp_imu_inC) {
         auto rT0_1 = boost::posix_time::microsec_clock::local_time();
         double update_dt = 100.0 * (timestamp_imu_inC - camera_queue.at(0).timestamp);
@@ -497,6 +619,14 @@ void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr ms
 
 void ROS2Visualizer::callback_monocular(const sensor_msgs::msg::Image::SharedPtr msg0, int cam_id0) {
 
+  static double last_time = 0;
+  if (last_time != 0) {
+    double dt = msg0->header.stamp.sec + msg0->header.stamp.nanosec * 1e-9 - last_time;
+    if(dt > 0.040) {
+      PRINT_INFO("Camera jitter detected! dt: %.3f ms\n", dt*1000);
+    }
+  }
+  last_time = msg0->header.stamp.sec + msg0->header.stamp.nanosec * 1e-9;
   // Check if we should drop this image
   double timestamp = msg0->header.stamp.sec + msg0->header.stamp.nanosec * 1e-9;
   double time_delta = 1.0 / _app->get_params().track_frequency;
@@ -588,6 +718,8 @@ void ROS2Visualizer::callback_stereo(const sensor_msgs::msg::Image::ConstSharedP
   std::sort(camera_queue.begin(), camera_queue.end());
 }
 
+
+
 void ROS2Visualizer::publish_state() {
 
   // Get the current state
@@ -601,7 +733,7 @@ void ROS2Visualizer::publish_state() {
   // Create pose of IMU (note we use the bag time)
   geometry_msgs::msg::PoseWithCovarianceStamped poseIinM;
   poseIinM.header.stamp = ROSVisualizerHelper::get_time_from_seconds(timestamp_inI);
-  poseIinM.header.frame_id = "global";
+  poseIinM.header.frame_id = "odom";
   poseIinM.pose.pose.orientation.x = state->_imu->quat()(0);
   poseIinM.pose.pose.orientation.y = state->_imu->quat()(1);
   poseIinM.pose.pose.orientation.z = state->_imu->quat()(2);
@@ -636,7 +768,7 @@ void ROS2Visualizer::publish_state() {
   // NOTE: https://github.com/ros-visualization/rviz/issues/1107
   nav_msgs::msg::Path arrIMU;
   arrIMU.header.stamp = _node->now();
-  arrIMU.header.frame_id = "global";
+  arrIMU.header.frame_id = "odom";
   for (size_t i = 0; i < poses_imu.size(); i += std::floor((double)poses_imu.size() / 16384.0) + 1) {
     arrIMU.poses.push_back(poses_imu.at(i));
   }
@@ -732,7 +864,7 @@ void ROS2Visualizer::publish_groundtruth() {
   // Create pose of IMU
   geometry_msgs::msg::PoseStamped poseIinM;
   poseIinM.header.stamp = ROSVisualizerHelper::get_time_from_seconds(timestamp_inI);
-  poseIinM.header.frame_id = "global";
+  poseIinM.header.frame_id = "odom";
   poseIinM.pose.orientation.x = state_gt(1, 0);
   poseIinM.pose.orientation.y = state_gt(2, 0);
   poseIinM.pose.orientation.z = state_gt(3, 0);
@@ -750,7 +882,7 @@ void ROS2Visualizer::publish_groundtruth() {
   // NOTE: https://github.com/ros-visualization/rviz/issues/1107
   nav_msgs::msg::Path arrIMU;
   arrIMU.header.stamp = _node->now();
-  arrIMU.header.frame_id = "global";
+  arrIMU.header.frame_id = "odom";
   for (size_t i = 0; i < poses_gt.size(); i += std::floor((double)poses_gt.size() / 16384.0) + 1) {
     arrIMU.poses.push_back(poses_gt.at(i));
   }
@@ -759,7 +891,7 @@ void ROS2Visualizer::publish_groundtruth() {
   // Publish our transform on TF
   geometry_msgs::msg::TransformStamped trans;
   trans.header.stamp = _node->now();
-  trans.header.frame_id = "global";
+  trans.header.frame_id = "odom";
   trans.child_frame_id = "truth";
   trans.transform.rotation.x = state_gt(1, 0);
   trans.transform.rotation.y = state_gt(2, 0);
@@ -859,7 +991,7 @@ void ROS2Visualizer::publish_loopclosure_information() {
     // PUBLISH HISTORICAL POSE ESTIMATE
     nav_msgs::msg::Odometry odometry_pose;
     odometry_pose.header = header;
-    odometry_pose.header.frame_id = "global";
+    odometry_pose.header.frame_id = "odom";
     odometry_pose.pose.pose.position.x = _app->get_state()->_clones_IMU.at(active_tracks_time1)->pos()(0);
     odometry_pose.pose.pose.position.y = _app->get_state()->_clones_IMU.at(active_tracks_time1)->pos()(1);
     odometry_pose.pose.pose.position.z = _app->get_state()->_clones_IMU.at(active_tracks_time1)->pos()(2);
@@ -904,7 +1036,7 @@ void ROS2Visualizer::publish_loopclosure_information() {
     // Construct the message
     sensor_msgs::msg::PointCloud point_cloud;
     point_cloud.header = header;
-    point_cloud.header.frame_id = "global";
+    point_cloud.header.frame_id = "odom";
     for (const auto &feattimes : active_tracks_posinG) {
 
       // Get this feature information
