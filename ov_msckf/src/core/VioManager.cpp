@@ -42,6 +42,7 @@
 #include "update/UpdaterMSCKF.h"
 #include "update/UpdaterSLAM.h"
 #include "update/UpdaterZeroVelocity.h"
+#include "ros/ROS2Visualizer.h"
 
 using namespace ov_core;
 using namespace ov_type;
@@ -161,9 +162,26 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
                                                         propagator, params.gravity_mag, params.zupt_max_velocity,
                                                         params.zupt_noise_multiplier, params.zupt_max_disparity);
   }
+
 }
 
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
+  static double last_timestamp = -1.0;
+  
+  // 최초 데이터인 경우
+  if (last_timestamp < 0) {
+    last_timestamp = message.timestamp;
+    return;
+  }
+
+  // 이전 타임스탬프와의 차이 계산
+  double dt = message.timestamp - last_timestamp;
+  if(dt > 0.0055)
+  {
+    PRINT_INFO(BOLDCYAN "IMU timestamp dt: %.6f ms\n" RESET, dt * 1000.0);
+  }
+  // 현재 타임스탬프 저장
+  last_timestamp = message.timestamp;
 
   // The oldest time we need IMU with is the last clone
   // We shouldn't really need the whole window, but if we go backwards in time we will
@@ -221,7 +239,9 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
   if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     // If the same state time, use the previous timestep decision
     if (state->_timestamp != timestamp) {
-      did_zupt_update = updaterZUPT->try_update(state, timestamp);
+      ZUPTResult zupt_result = updaterZUPT->try_update(state, timestamp);
+      did_zupt_update = zupt_result.is_zupt;
+      // ZUPT 상태 발행
     }
     if (did_zupt_update) {
       assert(state->_timestamp == timestamp);
@@ -291,13 +311,24 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   // Check if we should do zero-velocity, if so update the state with it
   // Note that in the case that we only use in the beginning initialization phase
   // If we have since moved, then we should never try to do a zero velocity update!
+  PRINT_DEBUG("is_initialized_vio: %d\n" RESET, is_initialized_vio);
   if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     // If the same state time, use the previous timestep decision
+    PRINT_DEBUG("is_initialized completed\n and updaterZUPT is not nullptr\n" RESET);
     if (state->_timestamp != message.timestamp) {
-      did_zupt_update = updaterZUPT->try_update(state, message.timestamp);
-    }
+      ZUPTResult zupt_result = updaterZUPT->try_update(state, message.timestamp);
+      did_zupt_update = zupt_result.is_zupt;
+      // _ROS2->publish_zupt_status(did_zupt_update);
+      if (_ROS2 != nullptr) {
+          _ROS2->publish_zupt_status(did_zupt_update);
+      } else {
+          PRINT_ERROR("ROS2Visualizer is not initialized!\n" RESET);
+      }
+      PRINT_DEBUG(RED "[ZUPT] did_zupt_update: %d\n" RESET, did_zupt_update);
+    } 
     if (did_zupt_update) {
       assert(state->_timestamp == message.timestamp);
+      PRINT_DEBUG(RED "[ZUPT] propagator->clean_old_imu_measurements\n" RESET);
       propagator->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       updaterZUPT->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       propagator->invalidate_cache();
@@ -309,7 +340,8 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   // TODO: Or if we are trying to reset the system, then do that here!
   if (!is_initialized_vio) {
     is_initialized_vio = try_to_initialize(message);
-    if (!is_initialized_vio) {
+    PRINT_INFO("result of try_to_initialize: %d\n" RESET, is_initialized_vio);
+    if (!is_initialized_vio) { //실패했으면 
       double time_track = (rT2 - rT1).total_microseconds() * 1e-6;
       PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
       return;
@@ -647,13 +679,14 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   if (timelastupdate != -1 && state->_clones_IMU.find(timelastupdate) != state->_clones_IMU.end()) {
     Eigen::Matrix<double, 3, 1> dx = state->_imu->pos() - state->_clones_IMU.at(timelastupdate)->pos();
     distance += dx.norm();
+    dt = message.timestamp - timelastupdate;
   }
   timelastupdate = message.timestamp;
 
   // Debug, print our current state
-  PRINT_INFO("q_GtoI = %.3f,%.3f,%.3f,%.3f | p_IinG = %.3f,%.3f,%.3f | dist = %.2f (meters)\n", state->_imu->quat()(0),
+  PRINT_INFO("q_GtoI = %.3f,%.3f,%.3f,%.3f | p_IinG = %.3f,%.3f,%.3f | dist = %.2f (meters), dt = %.2f (sec)\n", state->_imu->quat()(0),
              state->_imu->quat()(1), state->_imu->quat()(2), state->_imu->quat()(3), state->_imu->pos()(0), state->_imu->pos()(1),
-             state->_imu->pos()(2), distance);
+             state->_imu->pos()(2), distance, dt);
   PRINT_INFO("bg = %.4f,%.4f,%.4f | ba = %.4f,%.4f,%.4f\n", state->_imu->bias_g()(0), state->_imu->bias_g()(1), state->_imu->bias_g()(2),
              state->_imu->bias_a()(0), state->_imu->bias_a()(1), state->_imu->bias_a()(2));
 

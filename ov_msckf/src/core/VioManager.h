@@ -51,7 +51,7 @@ class UpdaterMSCKF;
 class UpdaterSLAM;
 class UpdaterZeroVelocity;
 class Propagator;
-
+class ROS2Visualizer; 
 /**
  * @brief Core class that manages the entire system
  *
@@ -110,6 +110,9 @@ public:
   /// Accessor to get the current propagator
   std::shared_ptr<Propagator> get_propagator() { return propagator; }
 
+  std::shared_ptr<ROS2Visualizer> _ROS2 = nullptr;
+
+  void set_ros_visualizer(std::shared_ptr<ROS2Visualizer> vis) { _ROS2 = vis; }
   /// Get a nice visualization image of what tracks we have
   cv::Mat get_historical_viz_image();
 
@@ -218,7 +221,7 @@ protected:
   // Track how much distance we have traveled
   double timelastupdate = -1;
   double distance = 0;
-
+  double dt = 0;
   // Startup time of the filter
   double startup_time = -1;
 
