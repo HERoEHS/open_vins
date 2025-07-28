@@ -54,7 +54,6 @@ list(APPEND ament_libraries
 ##################################################
 
 list(APPEND LIBRARY_SOURCES
-        src/dummy.cpp
         src/sim/Simulator.cpp
         src/state/State.cpp
         src/state/StateHelper.cpp
