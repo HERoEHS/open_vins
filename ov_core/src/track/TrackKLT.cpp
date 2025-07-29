@@ -32,7 +32,6 @@
 using namespace ov_core;
 
 void TrackKLT::feed_new_camera(const CameraData &message) {
-
   // Error check that we have all the data
   if (message.sensor_ids.empty() || message.sensor_ids.size() != message.images.size() || message.images.size() != message.masks.size()) {
     PRINT_ERROR(RED "[ERROR]: MESSAGE DATA SIZES DO NOT MATCH OR EMPTY!!!\n" RESET);
@@ -94,7 +93,6 @@ void TrackKLT::feed_new_camera(const CameraData &message) {
 }
 
 void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
-
   // Lock this data feed for this camera
   size_t cam_id = message.sensor_ids.at(msg_id);
   std::lock_guard<std::mutex> lck(mtx_feeds.at(cam_id));
@@ -112,6 +110,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     std::vector<cv::KeyPoint> good_left;
     std::vector<size_t> good_ids_left;
     perform_detection_monocular(imgpyr, mask, good_left, good_ids_left);
+
     // Save the current image and pyramid
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_last[cam_id] = img;
@@ -119,6 +118,16 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     img_mask_last[cam_id] = mask;
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
+    // Populate statistics for this camera
+    latest_stats[cam_id].time_pyramid_sec = 0;
+    latest_stats[cam_id].time_detection_sec = 0;
+    PRINT_ALL("여기보세요 여러분 Cam %zu: Detected=%zu, Tracked=%zu", cam_id, good_left.size(), 0);
+    latest_stats[cam_id].detected_features = good_left.size();
+    latest_stats[cam_id].time_klt_sec = 0;
+    latest_stats[cam_id].tracked_features = 0;
+    latest_stats[cam_id].time_db_update_sec = 0;
+    latest_stats[cam_id].time_total_sec = 0;
+
     return;
   }
 
@@ -188,15 +197,23 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     ids_last[cam_id] = good_ids_left;
   }
   rT5 = boost::posix_time::microsec_clock::local_time();
+  // Populate statistics for this camera
+  latest_stats[cam_id].time_pyramid_sec = (rT2 - rT1).total_microseconds() * 1e-6;
+  latest_stats[cam_id].time_detection_sec = (rT3 - rT2).total_microseconds() * 1e-6;
+  latest_stats[cam_id].detected_features = pts_left_old.size() - pts_before_detect;
+  latest_stats[cam_id].time_klt_sec = (rT4 - rT3).total_microseconds() * 1e-6;
+  latest_stats[cam_id].tracked_features = good_left.size();
+  latest_stats[cam_id].time_db_update_sec = (rT5 - rT4).total_microseconds() * 1e-6;
+  latest_stats[cam_id].time_total_sec = (rT5 - rT1).total_microseconds() * 1e-6;
 
   // Timing information
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for pyramid\n", (rT2 - rT1).total_microseconds() * 1e-6);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for detection (%zu detected)\n", (rT3 - rT2).total_microseconds() * 1e-6,
-            (int)pts_last[cam_id].size() - pts_before_detect);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal klt\n", (rT4 - rT3).total_microseconds() * 1e-6);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for feature DB update (%d features)\n", (rT5 - rT4).total_microseconds() * 1e-6,
-            (int)good_left.size());
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for total\n", (rT5 - rT1).total_microseconds() * 1e-6);
+  // PRINT_ALL("[TIME-KLT]: %.4f seconds for pyramid\n", (rT2 - rT1).total_microseconds() * 1e-6);
+  // PRINT_ALL("[TIME-KLT]: %.4f seconds for detection (%zu detected)\n", (rT3 - rT2).total_microseconds() * 1e-6,
+  //           (int)pts_last[cam_id].size() - pts_before_detect);
+  // PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal klt\n", (rT4 - rT3).total_microseconds() * 1e-6);
+  // PRINT_ALL("[TIME-KLT]: %.4f seconds for feature DB update (%d features)\n", (rT5 - rT4).total_microseconds() * 1e-6,
+  //           (int)good_left.size());
+  // PRINT_ALL("[TIME-KLT]: %.4f seconds for total\n", (rT5 - rT1).total_microseconds() * 1e-6);
 }
 
 void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t msg_id_right) {

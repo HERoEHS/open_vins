@@ -164,7 +164,13 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   }
 
 }
-
+std::map<size_t, ov_core::TrackingStats> VioManager::get_tracking_stats() {
+  auto trackKLT = std::dynamic_pointer_cast<ov_core::TrackKLT>(trackFEATS);
+  if (trackKLT) {
+    return trackKLT->latest_stats;
+  }
+  return {};
+}
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   static double last_timestamp = -1.0;
   
@@ -274,7 +280,6 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 }
 
 void VioManager::track_image_and_update(const ov_core::CameraData &message_const) {
-
   // Start timing
   rT1 = boost::posix_time::microsec_clock::local_time();
 
@@ -296,9 +301,18 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
     cv::pyrDown(mask, mask_temp, cv::Size(mask.cols / 2.0, mask.rows / 2.0));
     message.masks.at(i) = mask_temp;
   }
-
   // Perform our feature tracking!
   trackFEATS->feed_new_camera(message);
+  for (const auto& pair : get_tracking_stats()) {
+        size_t cam_id = pair.first;
+        const auto& stats = pair.second;
+        
+        // 여기서 stats.detected_features, stats.tracked_features 등의 값을
+        // 로깅하거나 플로팅을 위해 사용할 수 있습니다.
+        PRINT_INFO("여기보세요 여러분Cam %zu: Detected=%zu, Tracked=%zu\n", 
+                    cam_id, stats.detected_features, stats.tracked_features);
+  }
+  
 
   // If the aruco tracker is available, the also pass to it
   // NOTE: binocular tracking for aruco doesn't make sense as we by default have the ids
@@ -318,7 +332,6 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
     if (state->_timestamp != message.timestamp) {
       ZUPTResult zupt_result = updaterZUPT->try_update(state, message.timestamp);
       did_zupt_update = zupt_result.is_zupt;
-      // _ROS2->publish_zupt_status(did_zupt_update);
       if (_ROS2 != nullptr) {
           _ROS2->publish_zupt_status(did_zupt_update);
       } else {

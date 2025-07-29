@@ -45,7 +45,18 @@ class FeatureDatabase;
 
 /**
  * @brief Visual feature tracking base class
- *
+ */
+struct TrackingStats {
+  double time_pyramid_sec = 0.0;
+  double time_detection_sec = 0.0;
+  double time_klt_sec = 0.0;
+  double time_db_update_sec = 0.0;
+  double time_total_sec = 0.0;
+  size_t detected_features = 0;
+  size_t tracked_features = 0;
+};
+
+/**
  * This is the base class for all our visual trackers.
  * The goal here is to provide a common interface so all underlying trackers can simply hide away all the complexities.
  * We have something called the "feature database" which has all the tracking information inside of it.
@@ -69,6 +80,7 @@ class FeatureDatabase;
  * This visualization needs access to the prior images and their tracks, thus must synchronise in the case of multi-threading.
  * This shouldn't impact performance, but high frequency visualization calls can negatively effect the performance.
  */
+
 class TrackBase {
 
 public:
@@ -95,7 +107,6 @@ public:
    * @param message Contains our timestamp, images, and camera ids
    */
   virtual void feed_new_camera(const CameraData &message) = 0;
-
   /**
    * @brief Shows features extracted in the last image
    * @param img_out image to which we will overlayed features on

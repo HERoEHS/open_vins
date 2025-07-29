@@ -29,7 +29,7 @@ cam0:
   distortion_model: radtan
   intrinsics: [296.0146360086559, 296.49442491869144, 316.1577907340347, 247.49074318349108]
   resolution: [640, 480]
-  rostopic: /edie8/vision/image_raw_mono
+  rostopic: /edie8/vision/image_raw
   # timeshift_cam_imu: -0.16120574443390984
 
 

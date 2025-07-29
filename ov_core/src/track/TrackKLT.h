@@ -27,6 +27,9 @@
 namespace ov_core {
 
 /**
+ *@brief Simple struct to hold our tracking statistics
+ */
+/**
  * @brief KLT tracking of features.
  *
  * This is the implementation of a KLT visual frontend for tracking sparse features.
@@ -35,6 +38,7 @@ namespace ov_core {
  * to find the stereo correspondence information also.
  * This uses the [calcOpticalFlowPyrLK](https://github.com/opencv/opencv/blob/master/modules/video/src/lkpyramid.cpp)
  * OpenCV function to do the KLT tracking.
+ *
  */
 class TrackKLT : public TrackBase {
 
@@ -61,7 +65,10 @@ public:
    * @param message Contains our timestamp, images, and camera ids
    */
   void feed_new_camera(const CameraData &message) override;
-
+  /**
+   * @brief Publicly accessible tracking statistics for the last processed frame(s)
+   */
+  std::map<size_t, TrackingStats> latest_stats;
 protected:
   /**
    * @brief Process a new monocular image
