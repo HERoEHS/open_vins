@@ -81,7 +81,7 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   it_pub_loop_img_depth_color = it.advertise("loop_depth_colored", 2);
 
   pub_zupt_status = node->create_publisher<std_msgs::msg::Bool>("zupt_status", 2);
-
+  pub_feature_tracking_count = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/feature_tracking_count", 10);
   rclcpp::QoS qos_reliable(rclcpp::KeepLast(1000));
   qos_reliable.reliable();
   imu_interp_pub = node->create_publisher<sensor_msgs::msg::Imu>("imu_interp", qos_reliable);
@@ -236,7 +236,7 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
 }
 
 void ROS2Visualizer::visualize() {
-
+  
   // Return if we have already visualized
   if (last_visualization_timestamp == _app->get_state()->_timestamp && _app->initialized())
     return;
@@ -248,8 +248,9 @@ void ROS2Visualizer::visualize() {
 
   // publish current image (only if not multi-threaded)
   if (!_app->get_params().use_multi_threading_pubs)
-    publish_images();
+    publish_images(); 
 
+  publish_feature_tracking_count();
   // Return if we have not inited
   if (!_app->initialized())
     return;
@@ -265,6 +266,7 @@ void ROS2Visualizer::visualize() {
 
   // publish points
   publish_features();
+
 
   // Publish gt if we have it
   publish_groundtruth();
@@ -835,6 +837,49 @@ void ROS2Visualizer::publish_features() {
   pub_points_sim->publish(cloud_SIM);
 }
 
+void ROS2Visualizer::publish_feature_tracking_count() {
+  PRINT_INFO("publish_feature_tracking_count\n");
+  // Get the latest tracking stats from the VioManager
+  auto stats_map = _app->get_tracking_stats();
+
+  if (stats_map.empty()) {
+    PRINT_INFO("No tracking stats available\n");
+    return;
+  }
+
+  // The timestamp in the state will be the last camera time
+  double timestamp = _node->now().seconds();
+
+  diagnostic_msgs::msg::DiagnosticArray diag_array_msg;
+  diag_array_msg.header.stamp = ROSVisualizerHelper::get_time_from_seconds(timestamp);
+
+  // Loop through the stats for each camera and create a status message
+  for (const auto &pair : stats_map) {
+    size_t cam_id = pair.first;
+    const auto &stats = pair.second;
+
+    diagnostic_msgs::msg::DiagnosticStatus diag_status_msg;
+    diag_status_msg.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+    diag_status_msg.name = "VINS Feature Tracker";
+    diag_status_msg.hardware_id = "cam" + std::to_string(cam_id);
+    diag_status_msg.message = "Tracking statistics";
+
+    // Add key-value pairs for each piece of data
+    diagnostic_msgs::msg::KeyValue kv_detected;
+    kv_detected.key = "Detected Features";
+    kv_detected.value = std::to_string(stats.detected_features);
+    diag_status_msg.values.push_back(kv_detected);
+
+    diagnostic_msgs::msg::KeyValue kv_tracked;
+    kv_tracked.key = "Tracked Features";
+    kv_tracked.value = std::to_string(stats.tracked_features);
+    diag_status_msg.values.push_back(kv_tracked);
+
+    diag_array_msg.status.push_back(diag_status_msg);
+  }
+
+  pub_feature_tracking_count->publish(diag_array_msg);
+}
 void ROS2Visualizer::publish_groundtruth() {
 
   // Our groundtruth state

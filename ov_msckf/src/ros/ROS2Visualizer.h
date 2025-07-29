@@ -47,6 +47,7 @@
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
 
 #include <atomic>
 #include <fstream>
@@ -137,6 +138,8 @@ protected:
   /// Publish current features
   void publish_features();
 
+  void publish_feature_tracking_count();
+
   /// Publish groundtruth (if we have it)
   void publish_groundtruth();
 
@@ -164,6 +167,8 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_loop_intrinsics;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_zupt_status;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_interp_pub;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_feature_tracking_count;
+
   std::shared_ptr<tf2_ros::TransformBroadcaster> mTfBr;
 
   rclcpp::TimerBase::SharedPtr imu_timer;
