@@ -81,7 +81,7 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   it_pub_loop_img_depth_color = it.advertise("loop_depth_colored", 2);
 
   pub_zupt_status = node->create_publisher<std_msgs::msg::Bool>("zupt_status", 2);
-  pub_feature_tracking_count = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/feature_tracking_count", 10);
+  pub_feature_tracking_count = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("feature_tracking_count", 10);
   rclcpp::QoS qos_reliable(rclcpp::KeepLast(1000));
   qos_reliable.reliable();
   imu_interp_pub = node->create_publisher<sensor_msgs::msg::Imu>("imu_interp", qos_reliable);

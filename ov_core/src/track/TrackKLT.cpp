@@ -121,7 +121,6 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     // Populate statistics for this camera
     latest_stats[cam_id].time_pyramid_sec = 0;
     latest_stats[cam_id].time_detection_sec = 0;
-    PRINT_ALL("여기보세요 여러분 Cam %zu: Detected=%zu, Tracked=%zu", cam_id, good_left.size(), 0);
     latest_stats[cam_id].detected_features = good_left.size();
     latest_stats[cam_id].time_klt_sec = 0;
     latest_stats[cam_id].tracked_features = 0;
