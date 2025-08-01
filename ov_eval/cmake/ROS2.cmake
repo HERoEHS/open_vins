@@ -122,10 +122,10 @@ install(TARGETS plot_trajectories DESTINATION lib/${PROJECT_NAME})
 ##################################################
 
 # TODO: UPGRADE THIS TO ROS2 AS ANOTHER FILE!!
-#if (catkin_FOUND AND ENABLE_ROS)
-#    catkin_install_python(PROGRAMS python/pid_ros.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-#    catkin_install_python(PROGRAMS python/pid_sys.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-#endif ()
+install(PROGRAMS
+  python/pid_ros.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 
 # finally define this as the package
