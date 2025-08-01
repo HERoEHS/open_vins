@@ -26,26 +26,39 @@ from rclpy.node import Node
 
 def get_process_ros2(node_name, logger, doprint=False):
     """
-    Finds a ROS 2 node process by its name.
-    It iterates through all system processes and checks their command line
-    to find the one matching the specified node name.
+    Finds a ROS 2 node process by its name using several strategies.
     """
-    # Look for the __node:=<node_name> argument
-    # Node names in command line might not have a leading '/'
-    search_str = f"__node:={node_name.lstrip('/')}"
-
+    # Use the base name for searching (e.g., 'run_subscribe_msckf' from '/ov_msckf/run_subscribe_msckf')
+    base_node_name = node_name.split('/')[-1]
+    
     for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
-            if p.info['cmdline']:
-                # Check if the node name argument is in the process's command line
-                if any(search_str in arg for arg in p.info['cmdline']):
-                    if doprint:
-                        logger.info(f"Adding new node monitor {node_name} (pid {p.info['pid']})")
-                    return p
+            cmdline = p.info['cmdline']
+            if not cmdline:
+                continue
+
+            # --- Strategy 1: Check for executable path match ---
+            # This works for nodes started with `ros2 run <pkg> <exec>`.
+            # e.g., cmdline[0] might be '/.../install/pkg/lib/pkg/executable_name'
+            executable_path = cmdline[0]
+            if executable_path.split('/')[-1] == base_node_name:
+                if doprint:
+                    logger.info(f"FOUND (executable name match): Adding new node monitor {node_name} (pid {p.info['pid']})")
+                return p
+
+            # --- Strategy 2: Check for ROS 2 name remapping argument ---
+            # This works if the node is launched with a name remap.
+            # e.g., `... --ros-args -r __node:=my_node_name`
+            search_str_remap = f"__node:={base_node_name}"
+            if any(search_str_remap in arg for arg in cmdline):
+                if doprint:
+                    logger.info(f"FOUND (remap argument match): Adding new node monitor {node_name} (pid {p.info['pid']})")
+                return p
+            
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
     
-    logger.warn(f"Could not find process for node {node_name}")
+    logger.warn(f"Could not find process for node '{node_name}' (tried searching for base name '{base_node_name}')")
     return None
 
 
