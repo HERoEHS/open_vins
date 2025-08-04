@@ -10,15 +10,20 @@ cam0:
     - [  -1.0000,  0.0000, 0.0000, 0.0]
     - [-0.0000,  -0.766044,  0.642788, 0.039586341]
     - [0.0, 0.0, 0.0, 1.0]
+    # - [ 3.7395175727701568e-02,  3.7769481437524666e-01,  9.2517470135447510e-01, -3.0426999999999998e-01 ]
+    # - [ -9.9317753282495957e-01,  1.1637918848978479e-01, -7.3670060530387493e-03, -3.9458000000000000e-02 ]
+    # - [ -1.1045356093861658e-01, -9.1858723683736598e-01,  3.7947002410661135e-01, -1.7815500000000001e-01 ]
+    # - [  0.0000000000000000e+00,  0.0000000000000000e+00,  0.0000000000000000e+00, 1.0000000000000000e+00 ]
+
   cam_overlaps: []
   camera_model: pinhole
-  # distortion_coeffs: [-0.0472, 0.0137, -0.0730, 0.0887]
-  distortion_model: radtan
-  distortion_coeffs: [0, 0, 0, 0]
+  distortion_coeffs: [-0.0472, 0.0137, -0.0730, 0.0887]
+  distortion_model: equidistant
+  # distortion_coeffs: [0, 0, 0, 0]
   intrinsics: [501.65, 502.34, 312.48, 220.03]
   resolution: [640, 480]
-  # rostopic: /edie8/vision/image_raw_mono #raw image로 하는게 미친듯이 잘됨
-  rostopic: /edie8/vision/image_undistorted
+  rostopic: /edie8/vision/image_raw_mono
+  # rostopic: /edie8/vision/image_undistorted
   # timeshift_cam_imu: -0.16120574443390984
 
 # cam0: #ov5640
