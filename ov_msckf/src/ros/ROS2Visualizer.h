@@ -132,6 +132,9 @@ public:
 
   void publish_zupt_status(bool zupt_active);
 
+  /// Odom -> cam0_active_points TF 브로드케스트 함수
+  void publish_cam0_active_points_tf_from_odom(rclcpp::Time data_time);
+  
   geometry_msgs::msg::Pose2D latest_manager_pose;
   std::mutex latest_manager_pose_mutex;
 
@@ -169,6 +172,7 @@ protected:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odomimu;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pub_pathimu;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_points_msckf, pub_points_slam, pub_points_aruco, pub_points_sim;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_active_tracks;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_loop_pose, pub_loop_extrinsic;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr pub_loop_point;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_loop_intrinsics;

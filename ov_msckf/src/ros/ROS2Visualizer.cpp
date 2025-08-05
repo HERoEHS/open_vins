@@ -62,6 +62,10 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   pub_points_sim = node->create_publisher<sensor_msgs::msg::PointCloud2>("points_sim", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_points_sim->get_topic_name());
 
+  // Active tracks publishing
+  pub_active_tracks = node->create_publisher<sensor_msgs::msg::PointCloud2>("active_tracks", 2);
+  PRINT_DEBUG("Publishing: %s\n", pub_active_tracks->get_topic_name());
+
   // Our tracking image
   it_pub_tracks = it.advertise("trackhist", 2);
   PRINT_DEBUG("Publishing: %s\n", it_pub_tracks.getTopic().c_str());
@@ -199,6 +203,7 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
         qos_profile,
         std::bind(&ROS2Visualizer::callback_manager_pose, this, std::placeholders::_1));
   
+  // 검사님 여기요 여기 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   rclcpp::QoS qos_reliable(rclcpp::KeepLast(1000));
   qos_reliable.reliable();
 
@@ -1090,41 +1095,48 @@ void ROS2Visualizer::publish_loopclosure_information() {
 
   //======================================================
   // PUBLISH FEATURE TRACKS IN THE GLOBAL FRAME OF REFERENCE
-  if (pub_loop_point->get_subscription_count() != 0) {
+  if (pub_loop_point->get_subscription_count() != 0 || pub_active_tracks->get_subscription_count() != 0) {
 
     // Construct the message
     sensor_msgs::msg::PointCloud point_cloud;
-    point_cloud.header = header;
-    point_cloud.header.frame_id = "odom";
-    for (const auto &feattimes : active_tracks_posinG) {
+      sensor_msgs::msg::PointCloud2 point_cloud2;
+    point_cloud2 = ROSVisualizerHelper::get_ros_active_tracks_pointcloud(_node, header, active_tracks_uvd, active_tracks_posinG);
+    // point_cloud.header = header;
+    // point_cloud.header.frame_id = "odom";
+    // for (const auto &feattimes : active_tracks_posinG) {
 
-      // Get this feature information
-      size_t featid = feattimes.first;
-      Eigen::Vector3d uvd = Eigen::Vector3d::Zero();
-      if (active_tracks_uvd.find(featid) != active_tracks_uvd.end()) {
-        uvd = active_tracks_uvd.at(featid);
-      }
-      Eigen::Vector3d pFinG = active_tracks_posinG.at(featid);
+    //   // Get this feature information
+    //   size_t featid = feattimes.first;
+    //   Eigen::Vector3d uvd = Eigen::Vector3d::Zero();
+    //   if (active_tracks_uvd.find(featid) != active_tracks_uvd.end()) {
+    //     uvd = active_tracks_uvd.at(featid);
+    //   }
+    //   Eigen::Vector3d pFinG = active_tracks_posinG.at(featid);
 
-      // Push back 3d point
-      geometry_msgs::msg::Point32 p;
-      p.x = pFinG(0);
-      p.y = pFinG(1);
-      p.z = pFinG(2);
-      point_cloud.points.push_back(p);
+    //   // Push back 3d point
+    //   geometry_msgs::msg::Point32 p;
+    //   p.x = pFinG(0);
+    //   p.y = pFinG(1);
+    //   p.z = pFinG(2);
+    //   point_cloud.points.push_back(p);
 
-      // Push back the uv_norm, uv_raw, and feature id
-      // NOTE: we don't use the normalized coordinates to save time here
-      // NOTE: they will have to be re-normalized in the loop closure code
-      sensor_msgs::msg::ChannelFloat32 p_2d;
-      p_2d.values.push_back(0);
-      p_2d.values.push_back(0);
-      p_2d.values.push_back(uvd(0));
-      p_2d.values.push_back(uvd(1));
-      p_2d.values.push_back(featid);
-      point_cloud.channels.push_back(p_2d);
-    }
-    pub_loop_point->publish(point_cloud);
+    //   // Push back the uv_norm, uv_raw, and feature id
+    //   // NOTE: we don't use the normalized coordinates to save time here
+    //   // NOTE: they will have to be re-normalized in the loop closure code
+    //   sensor_msgs::msg::ChannelFloat32 p_2d;
+    //   p_2d.values.push_back(0);
+    //   p_2d.values.push_back(0);
+    //   p_2d.values.push_back(uvd(0));
+    //   p_2d.values.push_back(uvd(1));
+    //   p_2d.values.push_back(featid);
+    //   point_cloud.channels.push_back(p_2d);
+    // }
+    // pub_loop_point->publish(point_cloud);
+    pub_active_tracks->publish(point_cloud2);
+
+    // cam0_active_points의 TF를 odom을 부모로 하여 publish
+    rclcpp::Time data_time = ROSVisualizerHelper::get_time_from_seconds(active_tracks_time1);
+    publish_cam0_active_points_tf_from_odom(data_time);    
   }
 
   //======================================================
@@ -1187,4 +1199,37 @@ void ROS2Visualizer::publish_loopclosure_information() {
     sensor_msgs::msg::Image::SharedPtr exl_msg2 = cv_bridge::CvImage(header, "bgr8", depthmap_viz).toImageMsg();
     it_pub_loop_img_depth_color.publish(exl_msg2);
   }
+}
+
+void ROS2Visualizer::publish_cam0_active_points_tf_from_odom(rclcpp::Time data_time)
+{
+    // 1. odom->imu 변환 (State에서 얻음)
+    auto state = _app->get_state();
+    // JPL 쿼터니언 (x, y, z, w) 순서 -> Eigen 쿼터니언 (w, x, y, z) 순서
+    Eigen::Quaterniond q_odom_imu(state->_imu->quat()(3), state->_imu->quat()(0), state->_imu->quat()(1), state->_imu->quat()(2));
+    Eigen::Vector3d p_odom_imu = state->_imu->pos();
+
+    // 2. imu->cam0 변환 (extrinsic)
+    auto calib = state->_calib_IMUtoCAM.at(0);
+    Eigen::Quaterniond q_imu_cam0(calib->quat()(3), calib->quat()(0), calib->quat()(1), calib->quat()(2));
+    Eigen::Vector3d p_imu_cam0 = calib->pos();
+
+    // 3. odom->cam0 변환 (조합)
+    Eigen::Quaterniond q_odom_cam0 = q_odom_imu * q_imu_cam0;
+    Eigen::Vector3d p_odom_cam0 = p_odom_imu + q_odom_imu * p_imu_cam0;
+
+    // 4. TF 메시지 생성
+    geometry_msgs::msg::TransformStamped cam0_active_points_tf;
+    cam0_active_points_tf.header.stamp = data_time; // <<<< 실제 데이터 발생 시각!
+    cam0_active_points_tf.header.frame_id = "odom";
+    cam0_active_points_tf.child_frame_id = "cam0_active_points";
+    cam0_active_points_tf.transform.translation.x = p_odom_cam0.x();
+    cam0_active_points_tf.transform.translation.y = p_odom_cam0.y();
+    cam0_active_points_tf.transform.translation.z = p_odom_cam0.z();
+    cam0_active_points_tf.transform.rotation.x = q_odom_cam0.x();
+    cam0_active_points_tf.transform.rotation.y = q_odom_cam0.y();
+    cam0_active_points_tf.transform.rotation.z = q_odom_cam0.z();
+    cam0_active_points_tf.transform.rotation.w = q_odom_cam0.w();
+
+    mTfBr->sendTransform(cam0_active_points_tf);
 }

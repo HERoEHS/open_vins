@@ -36,7 +36,7 @@ sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(std::share
 
   // Declare message and sizes
   sensor_msgs::msg::PointCloud2 cloud;
-  cloud.header.frame_id = "global";
+  cloud.header.frame_id = "odom"; //"global";
   cloud.header.stamp = node->now();
   cloud.width = feats.size();
   cloud.height = 1;
@@ -61,6 +61,59 @@ sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_pointcloud(std::share
     ++out_y;
     *out_z = (float)pt(2);
     ++out_z;
+  }
+
+  return cloud;
+}
+
+sensor_msgs::msg::PointCloud2 ROSVisualizerHelper::get_ros_active_tracks_pointcloud(std::shared_ptr<rclcpp::Node> node,
+                                                                                    std_msgs::msg::Header header,
+                                                                                    const std::unordered_map<size_t, Eigen::Vector3d> &active_tracks_uvd,
+                                                                                    const std::unordered_map<size_t, Eigen::Vector3d> &active_tracks_posinG) {
+  // Declare message and sizes
+  sensor_msgs::msg::PointCloud2 cloud;
+  cloud.header = header;
+  cloud.header.frame_id = "odom"; //"cam0_active_points"; 
+  cloud.width = static_cast<uint32_t>(active_tracks_posinG.size());
+  cloud.height = 1;
+  cloud.is_bigendian = false;
+  cloud.is_dense = true; // there may be invalid points
+
+  // Setup pointcloud fields
+  sensor_msgs::PointCloud2Modifier modifier(cloud);
+  modifier.setPointCloud2FieldsByString(1, "xyz");
+  modifier.resize(cloud.width);
+
+  // Iterators
+  sensor_msgs::PointCloud2Iterator<float> out_x(cloud, "x");
+  sensor_msgs::PointCloud2Iterator<float> out_y(cloud, "y");
+  sensor_msgs::PointCloud2Iterator<float> out_z(cloud, "z");
+
+  // Fill our iterators
+  for (const auto &kv : active_tracks_posinG) {
+    // Get this feature information
+    size_t featid = kv.first;
+    Eigen::Vector3d uvd = Eigen::Vector3d::Zero();
+    auto it_uvd = active_tracks_uvd.find(featid);
+    if (it_uvd != active_tracks_uvd.end()) {
+      uvd = it_uvd->second;
+    }
+
+    const Eigen::Vector3d &pFinG = kv.second;
+    // Push back 3d point
+    *out_x = static_cast<float>(pFinG.x());
+    ++out_x;
+    *out_y = static_cast<float>(pFinG.y());
+    ++out_y;
+    *out_z = static_cast<float>(pFinG.z());
+    ++out_z;
+    
+    // *out_x = static_cast<float>(pFinG.z());   // 정면
+    // ++out_x;
+    // *out_y = static_cast<float>(-pFinG.x());  // 왼쪽
+    // ++out_y;
+    // *out_z = static_cast<float>(-pFinG.y());  // 위
+    // ++out_z;
   }
 
   return cloud;

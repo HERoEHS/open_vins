@@ -57,6 +57,18 @@ public:
   static sensor_msgs::msg::PointCloud2 get_ros_pointcloud(std::shared_ptr<rclcpp::Node> node, const std::vector<Eigen::Vector3d> &feats);
 
   /**
+   * @brief Will visualize the active tracks in current timestamp frame and in global frame
+   * @param node ROS2 node pointer
+   * @param header ROS2 header
+   * @param active_tracks_uvd Map(first: feature id, second: Vector of 2D position in Image frame) 
+                              which we will convert into ros format
+   * @param active_tracks_posinG Map(first: feature id, second: Vector of 3D position in Global frame) 
+                              which we will convert into ros format
+   * @return ROS pointcloud
+   */
+  static sensor_msgs::msg::PointCloud2 get_ros_active_tracks_pointcloud(std::shared_ptr<rclcpp::Node> node, std_msgs::msg::Header header, const std::unordered_map<size_t, Eigen::Vector3d> &active_tracks_uvd, const std::unordered_map<size_t, Eigen::Vector3d> &active_tracks_posinG);
+  
+  /**
    * @brief Given a ov_type::PoseJPL this will convert into the ros format.
    *
    * NOTE: frame ids need to be handled externally!
