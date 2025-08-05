@@ -86,6 +86,7 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   qos_reliable.reliable();
   imu_interp_pub = node->create_publisher<sensor_msgs::msg::Imu>("imu_interp", qos_reliable);
   // option to enable publishing of global to IMU transformation
+
   if (node->has_parameter("publish_global_to_imu_tf")) {
     node->get_parameter<bool>("publish_global_to_imu_tf", publish_global2imu_tf);
   }
@@ -182,9 +183,21 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
   _node->declare_parameter<std::string>("topic_imu", "/imu0");
   _node->get_parameter("topic_imu", topic_imu);
   parser->parse_external("relative_config_imu", "imu0", "rostopic", topic_imu);
-  // sub_imu = _node->create_subscription<sensor_msgs::msg::Imu>(topic_imu, rclcpp::SensorDataQoS(),
-                                                              // std::bind(&ROS2Visualizer::callback_inertial, this, std::placeholders::_1));
+  
   imu_timer = _node->create_wall_timer(std::chrono::milliseconds(5), std::bind(&ROS2Visualizer::imu_slot_callback, this));
+  
+  auto qos_profile = rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_default));
+  qos_profile.keep_last(5);  // 매니저와 동일하게 5로 설정
+  qos_profile.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+  qos_profile.durability(rclcpp::DurabilityPolicy::Volatile);
+  qos_profile.deadline();
+  qos_profile.lifespan();
+  qos_profile.liveliness(rclcpp::LivelinessPolicy::Automatic);
+
+  sub_manager_pose = _node->create_subscription<geometry_msgs::msg::Pose2D>(
+        "/edie8/localization/pose",
+        qos_profile,
+        std::bind(&ROS2Visualizer::callback_manager_pose, this, std::placeholders::_1));
   
   rclcpp::QoS qos_reliable(rclcpp::KeepLast(1000));
   qos_reliable.reliable();
@@ -216,7 +229,9 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
     sync_subs_cam.push_back(image_sub1);
     PRINT_INFO("subscribing to cam (stereo): %s\n", cam_topic0.c_str());
     PRINT_INFO("subscribing to cam (stereo): %s\n", cam_topic1.c_str());
-  } else {
+  } 
+  else 
+  {
     // Now we should add any non-stereo callbacks here
     for (int i = 0; i < _app->get_params().state_options.num_cameras; i++) {
       // read in the topic
@@ -713,6 +728,13 @@ void ROS2Visualizer::callback_stereo(const sensor_msgs::msg::Image::ConstSharedP
 }
 
 
+
+void ROS2Visualizer::callback_manager_pose(const geometry_msgs::msg::Pose2D::SharedPtr msg) 
+{
+    std::lock_guard<std::mutex> lock(latest_manager_pose_mutex);
+    latest_manager_pose = *msg;
+    PRINT_INFO(RED "callback_manager_pose\n" RESET);
+}
 
 void ROS2Visualizer::publish_state() {
 

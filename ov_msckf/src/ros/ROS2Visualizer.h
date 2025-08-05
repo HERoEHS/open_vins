@@ -23,6 +23,7 @@
 #define OV_MSCKF_ROS2VISUALIZER_H
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose2_d.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
@@ -124,9 +125,15 @@ public:
   void callback_stereo(const sensor_msgs::msg::Image::ConstSharedPtr msg0, const sensor_msgs::msg::Image::ConstSharedPtr msg1, int cam_id0,
                        int cam_id1);
 
+  /// Callback for manager pose information
+  void callback_manager_pose(const geometry_msgs::msg::Pose2D::SharedPtr msg);
+
   void imu_slot_callback();
 
   void publish_zupt_status(bool zupt_active);
+
+  geometry_msgs::msg::Pose2D latest_manager_pose;
+  std::mutex latest_manager_pose_mutex;
 
 protected:
   /// Publish the current state
@@ -175,6 +182,7 @@ protected:
 
   // Our subscribers and camera synchronizers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
+  rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr sub_manager_pose;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> subs_cam;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> sync_pol;
   std::vector<std::shared_ptr<message_filters::Synchronizer<sync_pol>>> sync_cam;
@@ -208,7 +216,7 @@ protected:
 
   std::deque<ov_core::ImuData> imu_queue;
   std::mutex imu_queue_mtx;
-  
+
   // Last camera message timestamps we have received (mapped by cam id)
   std::map<int, double> camera_last_timestamp;
 
