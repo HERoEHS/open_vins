@@ -1,7 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, TextSubstitution
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import LaunchConfiguration, TextSubstitution, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
 import os
@@ -44,7 +44,12 @@ launch_args = [
         name="save_total_state",
         default_value="false",
         description="record the total state with calibration and features to a txt file",
-    )
+    ),
+    DeclareLaunchArgument(
+        name="use_sim_time",
+        default_value="false",
+        description="use simulation time",
+    ),
 ]
 
 def launch_setup(context):
@@ -74,10 +79,32 @@ def launch_setup(context):
                         config_path)
                     )
             ]
-    node1 = Node(
+            
+    # node1 = Node(
+    #     package="ov_msckf",
+    #     executable="run_subscribe_msckf",
+    #     condition=IfCondition(LaunchConfiguration("ov_enable")),
+    #     namespace=LaunchConfiguration("namespace"),
+    #     output='screen',
+    #     parameters=[
+    #         # {"verbosity": LaunchConfiguration("verbosity")},
+    #         # {"use_stereo": LaunchConfiguration("use_stereo")},
+    #         # {"max_cameras": LaunchConfiguration("max_cameras")},
+    #         {"save_total_state": LaunchConfiguration("save_total_state")},
+    #         {"config_path": config_path},
+    #     ],
+    # )
+
+    # "'<ov_enable>' == 'true' and '<use_sim_time>' == 'false'"
+    real_condition = PythonExpression([
+        "'", LaunchConfiguration('ov_enable'), "' == 'true' and '",
+        LaunchConfiguration('use_sim_time'), "' == 'false'"
+    ])
+
+    real_node = Node(
         package="ov_msckf",
         executable="run_subscribe_msckf",
-        condition=IfCondition(LaunchConfiguration("ov_enable")),
+        condition=IfCondition(real_condition),
         namespace=LaunchConfiguration("namespace"),
         output='screen',
         parameters=[
@@ -86,6 +113,29 @@ def launch_setup(context):
             # {"max_cameras": LaunchConfiguration("max_cameras")},
             {"save_total_state": LaunchConfiguration("save_total_state")},
             {"config_path": config_path},
+            {"use_sim_time": False},
+        ],
+    )
+    
+    # 마찬가지로 sim_node 도
+    sim_condition = PythonExpression([
+        "'", LaunchConfiguration('ov_enable'), "' == 'true' and '",
+        LaunchConfiguration('use_sim_time'), "' == 'true'"
+    ])
+
+    sim_node = Node(
+        package="ov_msckf",
+        executable="run_subscribe_msckf",
+        condition=IfCondition(sim_condition),
+        namespace=LaunchConfiguration("namespace"),
+        output='screen',
+        parameters=[
+            # {"verbosity": LaunchConfiguration("verbosity")},
+            # {"use_stereo": LaunchConfiguration("use_stereo")},
+            # {"max_cameras": LaunchConfiguration("max_cameras")},
+            {"save_total_state": LaunchConfiguration("save_total_state")},
+            {"config_path": config_path},
+            {"use_sim_time": True},
         ],
     )
 
@@ -104,8 +154,7 @@ def launch_setup(context):
             ],
     )
 
-    return [node1, node2]
-
+    return [real_node, sim_node, node2]
 
 def generate_launch_description():
     opfunc = OpaqueFunction(function=launch_setup)
