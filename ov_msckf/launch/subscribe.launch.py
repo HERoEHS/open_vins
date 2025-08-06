@@ -87,6 +87,7 @@ def launch_setup(context):
             {"save_total_state": LaunchConfiguration("save_total_state")},
             {"config_path": config_path},
         ],
+        # prefix="gdb -ex run --args",
     )
 
     node2 = Node(

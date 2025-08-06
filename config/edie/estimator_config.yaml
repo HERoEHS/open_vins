@@ -27,7 +27,7 @@ feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
 
 # zero velocity update parameters we can use
 # we support either IMU-based or disparity detection.
-try_zupt: true 
+try_zupt: false 
 zupt_chi2_multipler: 0 # set to 0 for only disp-based
 zupt_max_velocity: 0.01 #거의 의미없음 카메라로 보통 판단하기때문에 이것보다 크면 정지상태 아님!
 zupt_noise_multiplier: 10

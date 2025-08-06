@@ -42,6 +42,7 @@
 #include "update/UpdaterMSCKF.h"
 #include "update/UpdaterSLAM.h"
 #include "update/UpdaterZeroVelocity.h"
+#include "update/UpdaterCorrectedPose.h"
 #include "ros/ROS2Visualizer.h"
 
 using namespace ov_core;
@@ -155,7 +156,7 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   // Make the updater!
   updaterMSCKF = std::make_shared<UpdaterMSCKF>(params.msckf_options, params.featinit_options);
   updaterSLAM = std::make_shared<UpdaterSLAM>(params.slam_options, params.aruco_options, params.featinit_options);
-
+  updaterCorrectedPose = std::make_shared<UpdaterCorrectedPose>();
   // If we are using zero velocity updates, then create the updater
   if (params.try_zupt) {
     updaterZUPT = std::make_shared<UpdaterZeroVelocity>(params.zupt_options, params.imu_noises, trackFEATS->get_feature_database(),
@@ -337,9 +338,37 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       } else {
           PRINT_ERROR("ROS2Visualizer is not initialized!\n" RESET);
       }
-      PRINT_DEBUG(RED "[ZUPT] did_zupt_update: %d\n" RESET, did_zupt_update);
+      PRINT_DEBUG(RED "[ZUPT] pose_correction_applied: %d\n" RESET, pose_correction_applied);
     } 
     if (did_zupt_update) {
+      if (!pose_correction_applied) {
+        if (_ROS2 != nullptr && updaterCorrectedPose != nullptr) {
+          // 1) Get latest pose from manager
+          geometry_msgs::msg::Pose2D corrected_pose = _ROS2->get_latest_manager_pose();
+          
+          // Calculate current yaw from the state quaternion to check for difference
+          ov_type::JPLQuat current_quat;
+          current_quat.set_value(state->_imu->quat());
+          double current_yaw = current_quat.Rot().eulerAngles(2, 1, 0)(0);
+
+          // Only update if the corrected pose is not zero and is significantly different from the current state
+          if ((corrected_pose.x != 0.0 || corrected_pose.y != 0.0 || corrected_pose.theta != 0.0) &&
+              (std::abs(corrected_pose.x - state->_imu->pos().x()) > 1.0 ||
+               std::abs(corrected_pose.y - state->_imu->pos().y()) > 1.0 ||
+               std::abs(corrected_pose.theta - current_yaw) > 3.14)) {
+            // 2) Set noise to be very small to force the state to the measurement
+            updaterCorrectedPose->_noise_x = 1e-6;
+            updaterCorrectedPose->_noise_y = 1e-6;
+            updaterCorrectedPose->_noise_yaw = 1e-6;
+
+            // 3) Call EKF update
+            updaterCorrectedPose->update(state, corrected_pose);
+          }
+        }
+        // Mark that we have applied the correction for this stationary period
+        pose_correction_applied = true;
+      }
+
       assert(state->_timestamp == message.timestamp);
       PRINT_DEBUG(RED "[ZUPT] propagator->clean_old_imu_measurements\n" RESET);
       propagator->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
@@ -348,7 +377,7 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       return;
     }
   }
-
+  pose_correction_applied = false;
   // If we do not have VIO initialization, then try to initialize
   // TODO: Or if we are trying to reset the system, then do that here!
   if (!is_initialized_vio) {

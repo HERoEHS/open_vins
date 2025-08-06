@@ -733,7 +733,6 @@ void ROS2Visualizer::callback_manager_pose(const geometry_msgs::msg::Pose2D::Sha
 {
     std::lock_guard<std::mutex> lock(latest_manager_pose_mutex);
     latest_manager_pose = *msg;
-    PRINT_INFO(RED "callback_manager_pose\n" RESET);
 }
 
 void ROS2Visualizer::publish_state() {
@@ -894,6 +893,7 @@ void ROS2Visualizer::publish_feature_tracking_count() {
 
   pub_feature_tracking_count->publish(diag_array_msg);
 }
+
 void ROS2Visualizer::publish_groundtruth() {
 
   // Our groundtruth state

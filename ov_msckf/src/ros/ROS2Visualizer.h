@@ -132,8 +132,13 @@ public:
 
   void publish_zupt_status(bool zupt_active);
 
-  geometry_msgs::msg::Pose2D latest_manager_pose;
-  std::mutex latest_manager_pose_mutex;
+
+
+  geometry_msgs::msg::Pose2D get_latest_manager_pose()
+  {
+    std::lock_guard<std::mutex> lock(latest_manager_pose_mutex);
+    return latest_manager_pose;
+  }
 
 protected:
   /// Publish the current state
@@ -216,6 +221,9 @@ protected:
 
   std::deque<ov_core::ImuData> imu_queue;
   std::mutex imu_queue_mtx;
+
+  geometry_msgs::msg::Pose2D latest_manager_pose;
+  std::mutex latest_manager_pose_mutex;
 
   // Last camera message timestamps we have received (mapped by cam id)
   std::map<int, double> camera_last_timestamp;

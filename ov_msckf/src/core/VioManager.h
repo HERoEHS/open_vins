@@ -50,6 +50,7 @@ class StateHelper;
 class UpdaterMSCKF;
 class UpdaterSLAM;
 class UpdaterZeroVelocity;
+class UpdaterCorrectedPose;
 class Propagator;
 class ROS2Visualizer; 
 /**
@@ -210,6 +211,9 @@ protected:
   /// Our zero velocity tracker
   std::shared_ptr<UpdaterZeroVelocity> updaterZUPT;
 
+  /// Our corrected pose updater
+  std::shared_ptr<UpdaterCorrectedPose> updaterCorrectedPose;
+
   /// This is the queue of measurement times that have come in since we starting doing initialization
   /// After we initialize, we will want to prop & update to the latest timestamp quickly
   std::vector<double> camera_queue_init;
@@ -231,6 +235,7 @@ protected:
 
   // If we did a zero velocity update
   bool did_zupt_update = false;
+  bool pose_correction_applied = false;
   bool has_moved_since_zupt = false;
 
   // Good features that where used in the last update (used in visualization)
