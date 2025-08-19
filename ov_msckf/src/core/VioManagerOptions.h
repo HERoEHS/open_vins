@@ -59,7 +59,8 @@ struct VioManagerOptions {
    * @brief This function will load the non-simulation parameters of the system and print.
    * @param parser If not null, this parser will be used to load our parameters
    */
-  void print_and_load(const std::shared_ptr<ov_core::YamlParser> &parser = nullptr) {
+  void print_and_load(const std::shared_ptr<ov_core::YamlParser> &parser = nullptr) 
+  {
     print_and_load_estimator(parser);
     print_and_load_trackers(parser);
     print_and_load_noise(parser);
@@ -147,6 +148,26 @@ struct VioManagerOptions {
   /// Update options for zero velocity (chi2 multiplier)
   UpdaterOptions zupt_options;
 
+  /// Transformation from the base_link to the imu frame
+  Eigen::Matrix3d wheel_odom_R_IB = Eigen::Matrix3d::Identity();
+
+  /// Translation of the base_link frame in the imu frame
+  Eigen::Vector3d wheel_odom_t_IB = Eigen::Vector3d::Zero();
+
+  /// Noise for wheel odom linear velocity x
+  double wheel_odom_noise_vx = 0.05;
+  /// Noise for wheel odom linear velocity y
+  double wheel_odom_noise_vy = 0.05;
+  /// Noise for wheel odom linear velocity z
+  double wheel_odom_noise_vz = 0.05;
+
+  /// Noise for wheel odom angular velocity x
+  double wheel_odom_noise_wx = 0.01;
+  /// Noise for wheel odom angular velocity y
+  double wheel_odom_noise_wy = 0.01;
+  /// Noise for wheel odom angular velocity z
+  double wheel_odom_noise_wz = 0.01;
+
   /**
    * @brief This function will load print out all noise parameters loaded.
    * This allows for visual checking that everything was loaded properly from ROS/CMD parsers.
@@ -162,18 +183,6 @@ struct VioManagerOptions {
       parser->parse_external("relative_config_imu", "imu0", "accelerometer_random_walk", imu_noises.sigma_ab);
     }
     imu_noises.print();
-    if (parser != nullptr) {
-      parser->parse_config("up_msckf_sigma_px", msckf_options.sigma_pix);
-      parser->parse_config("up_msckf_chi2_multipler", msckf_options.chi2_multipler);
-      parser->parse_config("up_slam_sigma_px", slam_options.sigma_pix);
-      parser->parse_config("up_slam_chi2_multipler", slam_options.chi2_multipler);
-      parser->parse_config("up_aruco_sigma_px", aruco_options.sigma_pix);
-      parser->parse_config("up_aruco_chi2_multipler", aruco_options.chi2_multipler);
-      msckf_options.sigma_pix_sq = std::pow(msckf_options.sigma_pix, 2);
-      slam_options.sigma_pix_sq = std::pow(slam_options.sigma_pix, 2);
-      aruco_options.sigma_pix_sq = std::pow(aruco_options.sigma_pix, 2);
-      parser->parse_config("zupt_chi2_multipler", zupt_options.chi2_multipler);
-    }
     PRINT_DEBUG("  Updater MSCKF Feats:\n");
     msckf_options.print();
     PRINT_DEBUG("  Updater SLAM Feats:\n");
@@ -215,6 +224,9 @@ struct VioManagerOptions {
 
   /// If we should try to load a mask and use it to reject invalid features
   bool use_mask = false;
+
+  /// If we should use wheel odom
+  bool use_wheel_odom = false;
 
   /// Mask images for each camera
   std::map<size_t, cv::Mat> masks;
@@ -337,6 +349,23 @@ struct VioManagerOptions {
         std::exit(EXIT_FAILURE);
       }
 
+      // Wheel odometry config
+      parser->parse_config("use_wheel_odom", use_wheel_odom);
+      if (use_wheel_odom)
+      {
+        Eigen::Matrix4d T_ItoB = Eigen::Matrix4d::Identity();
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "T_imu_base", T_ItoB);
+        wheel_odom_R_IB = T_ItoB.block<3,3>(0,0);
+        wheel_odom_t_IB = T_ItoB.block<3,1>(0,3);
+
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "noise_vx", wheel_odom_noise_vx);
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "noise_vy", wheel_odom_noise_vy);
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "noise_vz", wheel_odom_noise_vz);
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "noise_wx", wheel_odom_noise_wx);
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "noise_wy", wheel_odom_noise_wy);
+        parser->parse_external("relative_config_wheel_odom", "wheel_odom0", "noise_wz", wheel_odom_noise_wz);
+      }
+
       // kalibr model: lower triangular of the matrix and R_GYROtoI
       // rpng model: upper triangular of the matrix and R_ACCtoI
       if (state_options.imu_model == StateOptions::ImuModel::KALIBR) {
@@ -389,6 +418,17 @@ struct VioManagerOptions {
     ss << "q_GYROtoI: " << q_GYROtoIMU.transpose() << std::endl;
     ss << "q_ACCtoI: " << q_ACCtoIMU.transpose() << std::endl;
     PRINT_DEBUG(ss.str().c_str());
+
+    PRINT_DEBUG("WHEEL ODOM PARAMETERS:\n");
+    PRINT_DEBUG("  - use_wheel_odom: %d\n", use_wheel_odom);
+    if(use_wheel_odom) {
+        std::stringstream ss_wheel;
+        ss_wheel << "R_IB:\n" << wheel_odom_R_IB << std::endl;
+        ss_wheel << "t_IB: " << wheel_odom_t_IB.transpose() << std::endl;
+        ss_wheel << "noise_v (xyz): " << wheel_odom_noise_vx << ", " << wheel_odom_noise_vy << ", " << wheel_odom_noise_vz << std::endl;
+        ss_wheel << "noise_w (xyz): " << wheel_odom_noise_wx << ", " << wheel_odom_noise_wy << ", " << wheel_odom_noise_wz << std::endl;
+        PRINT_DEBUG(ss_wheel.str().c_str());
+    }
   }
 
   // TRACKERS ===============================

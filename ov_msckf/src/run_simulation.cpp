@@ -37,6 +37,12 @@
 #include <rclcpp/rclcpp.hpp>
 #endif
 
+#include <pthread.h>
+#include <sched.h>
+#include <errno.h>
+#include <string.h>
+#include <iostream>
+
 using namespace ov_msckf;
 
 std::shared_ptr<Simulator> sim;
@@ -67,6 +73,31 @@ int main(int argc, char **argv) {
 #elif ROS_AVAILABLE == 2
   // Launch our ros node
   rclcpp::init(argc, argv);
+
+  // Set scheduler to SCHED_FIFO and priority to 80
+  {
+    struct sched_param sch_param{};
+    sch_param.sched_priority = 80;
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sch_param) != 0) {
+        std::cerr << "pthread_setschedparam failed: "
+                  << std::strerror(errno) << std::endl;
+    }
+    // verification
+    int policy_check;
+    struct sched_param param_check;
+    if (pthread_getschedparam(pthread_self(), &policy_check, &param_check) == 0) {
+        const char* policy_name =
+            (policy_check == SCHED_FIFO ? "SCHED_FIFO" :
+             policy_check == SCHED_RR   ? "SCHED_RR"   : "SCHED_OTHER");
+        std::cout << "Scheduler check: policy=" << policy_name
+                  << ", priority=" << param_check.sched_priority
+                  << std::endl;
+    } else {
+        std::cerr << "pthread_getschedparam failed: "
+                  << std::strerror(errno) << std::endl;
+    }
+  }
+
   rclcpp::NodeOptions options;
   options.allow_undeclared_parameters(true);
   options.automatically_declare_parameters_from_overrides(true);

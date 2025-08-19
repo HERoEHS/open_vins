@@ -43,7 +43,9 @@
 #include "update/UpdaterSLAM.h"
 #include "update/UpdaterZeroVelocity.h"
 #include "update/UpdaterCorrectedPose.h"
+#include "update/UpdaterWheelOdom.h"
 #include "ros/ROS2Visualizer.h"
+
 
 using namespace ov_core;
 using namespace ov_type;
@@ -163,7 +165,24 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
                                                         propagator, params.gravity_mag, params.zupt_max_velocity,
                                                         params.zupt_noise_multiplier, params.zupt_max_disparity);
   }
-
+  if (params.use_wheel_odom) {
+    updaterWheelOdom = std::make_shared<UpdaterWheelOdom>(
+      params.wheel_odom_R_IB,
+      params.wheel_odom_t_IB,
+      params.wheel_odom_noise_vx,
+      params.wheel_odom_noise_vy,
+      params.wheel_odom_noise_vz,
+      params.wheel_odom_noise_wx,
+      params.wheel_odom_noise_wy,
+      params.wheel_odom_noise_wz
+    );
+  }
+}
+void VioManager::feed_measurement_wheel(const nav_msgs::msg::Odometry::SharedPtr& odom) {
+    if (is_initialized_vio && updaterWheelOdom) {
+        updaterWheelOdom->update(state, *odom);
+        propagator->invalidate_cache();
+    }
 }
 std::map<size_t, ov_core::TrackingStats> VioManager::get_tracking_stats() {
   auto trackKLT = std::dynamic_pointer_cast<ov_core::TrackKLT>(trackFEATS);

@@ -37,7 +37,6 @@ using namespace ov_msckf;
 
 ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_ptr<VioManager> app, std::shared_ptr<Simulator> sim)
     : _node(node), _app(app), _sim(sim), thread_update_running(false) {
-
   // Setup our transform broadcaster
   mTfBr = std::make_shared<tf2_ros::TransformBroadcaster>(node);
 
@@ -248,6 +247,12 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
       PRINT_INFO("subscribing to cam (mono): %s\n", cam_topic.c_str());
     }
   }
+
+  sub_wheel_odometry = _node->create_subscription<nav_msgs::msg::Odometry>(
+        "/edie8/localization/ekf_odom",
+        qos_reliable,
+        std::bind(&ROS2Visualizer::callback_wheel_odometry, this, std::placeholders::_1));
+        
 }
 
 void ROS2Visualizer::visualize() {
@@ -613,6 +618,13 @@ void ROS2Visualizer::imu_slot_callback() {
         double time_total = (rT0_2 - rT0_1).total_microseconds() * 1e-6;
         PRINT_INFO(BLUE "[TIME]: %.4f seconds total (%.1f hz, %.2f ms behind)\n" RESET, time_total, 1.0 / time_total, update_dt);
       }
+      
+      // Also process any wheel odometry measurements that are "old enough"
+      std::lock_guard<std::mutex> wheel_lck(wheel_odom_queue_mtx);
+      while (!wheel_odom_queue.empty() && (wheel_odom_queue.front()->header.stamp.sec + wheel_odom_queue.front()->header.stamp.nanosec*1e-9) < interpolated.timestamp) {
+          _app->feed_measurement_wheel(wheel_odom_queue.front());
+          wheel_odom_queue.pop_front();
+      }
     }
     thread_update_running = false;
   });
@@ -733,6 +745,15 @@ void ROS2Visualizer::callback_manager_pose(const geometry_msgs::msg::Pose2D::Sha
 {
     std::lock_guard<std::mutex> lock(latest_manager_pose_mutex);
     latest_manager_pose = *msg;
+}
+
+void ROS2Visualizer::callback_wheel_odometry(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+    // We only need to queue the measurements if we are using the wheel odom
+    if(_app->get_params().use_wheel_odom) {
+        std::lock_guard<std::mutex> lck(wheel_odom_queue_mtx);
+        wheel_odom_queue.push_back(msg);
+    }
 }
 
 void ROS2Visualizer::publish_state() {

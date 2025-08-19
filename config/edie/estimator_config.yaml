@@ -7,6 +7,8 @@ integration: "rk4" # discrete, rk4, analytical (if rk4 or analytical used then a
 use_stereo: false # if we have more than 1 camera, if we should try to track stereo constraints between pairs
 max_cameras: 1 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
 
+use_wheel_odom: true
+
 calib_cam_extrinsics: false #이건 무조건 false # if the transform between camera and IMU should be optimized R_ItoC, p_CinI // true가 맞는것같음
 calib_cam_intrinsics: false # if camera intrinsics should be optimized (focal, center, distortion)
 calib_cam_timeoffset: true # if timeoffset between camera and IMU should be optimized
@@ -27,7 +29,7 @@ feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
 
 # zero velocity update parameters we can use
 # we support either IMU-based or disparity detection.
-try_zupt: false 
+try_zupt: false
 zupt_chi2_multipler: 0 # set to 0 for only disp-based
 zupt_max_velocity: 0.01 #거의 의미없음 카메라로 보통 판단하기때문에 이것보다 크면 정지상태 아님!
 zupt_noise_multiplier: 10
@@ -111,6 +113,7 @@ use_mask: false
 # imu config should also have the correct noise values
 relative_config_imu: "kalibr_imu_chain.yaml"
 relative_config_imucam: "kalibr_imucam_chain.yaml"
+relative_config_wheel_odom: "kalibr_imuwheel_chain.yaml"
 
 
 

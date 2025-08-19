@@ -1,0 +1,20 @@
+%YAML:1.0
+# ==================================================================
+# Wheel Odometry Updater Parameters
+# ==================================================================
+wheel_odom0:
+  # Transformation from the imu to the base_link frame
+  # This should be the location of the IMU relative to the odom frame
+  T_imu_base:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+
+  # Twist measurement noise standard deviations
+  noise_vx: 0.05 # m/s
+  noise_vy: 0.05 # m/s
+  noise_vz: 0.05 # m/s
+  noise_wx: 0.01 # rad/s
+  noise_wy: 0.01 # rad/s
+  noise_wz: 0.01 # rad/s

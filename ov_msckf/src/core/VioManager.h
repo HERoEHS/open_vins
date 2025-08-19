@@ -31,6 +31,8 @@
 #include <mutex>
 #include <string>
 
+#include <nav_msgs/msg/odometry.hpp>
+
 #include "VioManagerOptions.h"
 
 namespace ov_core {
@@ -53,6 +55,7 @@ class UpdaterZeroVelocity;
 class UpdaterCorrectedPose;
 class Propagator;
 class ROS2Visualizer; 
+class UpdaterWheelOdom;
 /**
  * @brief Core class that manages the entire system
  *
@@ -80,6 +83,12 @@ public:
    * @param message Contains our timestamp, images, and camera ids
    */
   void feed_measurement_camera(const ov_core::CameraData &message) { track_image_and_update(message); }
+
+  /**
+   * @brief Feed function for wheel odometry measurements
+   * @param odom Odometry measurement to be used
+   */
+  void feed_measurement_wheel(const nav_msgs::msg::Odometry::SharedPtr& odom);
 
   /**
    * @brief Feed function for a synchronized simulated cameras
@@ -210,6 +219,9 @@ protected:
 
   /// Our zero velocity tracker
   std::shared_ptr<UpdaterZeroVelocity> updaterZUPT;
+
+  /// Our wheel odometry updater
+  std::shared_ptr<UpdaterWheelOdom> updaterWheelOdom;
 
   /// Our corrected pose updater
   std::shared_ptr<UpdaterCorrectedPose> updaterCorrectedPose;

@@ -67,6 +67,7 @@ list(APPEND LIBRARY_SOURCES
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
         src/update/UpdaterCorrectedPose.cpp
+        src/update/UpdaterWheelOdom.cpp
 )
 list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
@@ -92,12 +93,12 @@ ament_export_libraries(ov_msckf_lib)
 
 add_executable(run_subscribe_msckf src/run_subscribe_msckf.cpp)
 ament_target_dependencies(run_subscribe_msckf ${ament_libraries})
-target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
+target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries} pthread)
 install(TARGETS run_subscribe_msckf DESTINATION lib/${PROJECT_NAME})
 
 add_executable(run_simulation src/run_simulation.cpp)
 ament_target_dependencies(run_simulation ${ament_libraries})
-target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries})
+target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries} pthread)
 install(TARGETS run_simulation DESTINATION lib/${PROJECT_NAME})
 
 add_executable(test_sim_meas src/test_sim_meas.cpp)
