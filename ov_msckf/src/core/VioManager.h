@@ -105,6 +105,22 @@ public:
    */
   void initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate);
 
+  /**
+   * @brief Reset the entire VIO system to initial state (0,0,0,0,0,0,0)
+   * This will reinitialize all components and clear all buffers
+   */
+  void reset();
+
+  /**
+   * @brief Smart reset preserving useful state information
+   * @param preserve_orientation Keep current orientation estimate
+   * @param preserve_velocity Keep current velocity estimate  
+   * @param preserve_biases Keep current bias estimates
+   */
+  void reset_with_state_preservation(bool preserve_orientation = true, 
+                                   bool preserve_velocity = true, 
+                                   bool preserve_biases = true);
+
   /// If we are initialized or not
   bool initialized() { return is_initialized_vio && timelastupdate != -1; }
 

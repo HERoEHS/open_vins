@@ -253,6 +253,19 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
         qos_reliable,
         std::bind(&ROS2Visualizer::callback_wheel_odometry, this, std::placeholders::_1));
         
+  rclcpp::QoS reset_qos(rclcpp::KeepLast(1));
+  reset_qos.reliable();
+  reset_qos.durability(rclcpp::DurabilityPolicy::Volatile);
+
+  sub_reset_request = _node->create_subscription<std_msgs::msg::Empty>(
+      "/edie8/localization/reset_request",
+      reset_qos,
+      std::bind(&ROS2Visualizer::callback_reset_request, this, std::placeholders::_1));
+
+  // Create a timer to check for reset requests (10Hz)
+  reset_check_timer = _node->create_wall_timer(
+      std::chrono::milliseconds(100),
+      std::bind(&ROS2Visualizer::check_reset_request, this));
 }
 
 void ROS2Visualizer::visualize() {
@@ -509,6 +522,9 @@ void ROS2Visualizer::imu_slot_callback() {
   static double last_slot_time = -1.0;
   const double target_dt = 0.005; // 5ms
   
+  // Lock the mutex to ensure exclusive access during processing
+  std::lock_guard<std::mutex> lock(_process_and_reset_mutex);
+  
   // PRINT_DEBUG(RED "[IMU Grab] last_slot_time : %.6f\n" RESET, last_slot_time);
   std::lock_guard<std::mutex> lck(imu_queue_mtx);
   if (imu_queue.size() < 2)
@@ -556,26 +572,6 @@ void ROS2Visualizer::imu_slot_callback() {
   _app->feed_measurement_imu(interpolated);
   visualize_odometry(interpolated.timestamp);
 
-  // 퍼블리시
-  // auto imu_msg = std::make_unique<sensor_msgs::msg::Imu>();  // 힙에 생성 (권장)
-  
-  // // interpolated의 timestamp 사용
-  // imu_msg->header.stamp.sec = static_cast<int32_t>(interpolated.timestamp);
-  // imu_msg->header.stamp.nanosec = static_cast<uint32_t>((interpolated.timestamp - static_cast<int32_t>(interpolated.timestamp)) * 1e9);
-   
-  // imu_msg->header.frame_id = "odom";
-  
-  // // IMU 데이터 설정
-  // imu_msg->angular_velocity.x = interpolated.wm(0);
-  // imu_msg->angular_velocity.y = interpolated.wm(1);
-  // imu_msg->angular_velocity.z = interpolated.wm(2);
-  // imu_msg->linear_acceleration.x = interpolated.am(0);
-  // imu_msg->linear_acceleration.y = interpolated.am(1);
-  // imu_msg->linear_acceleration.z = interpolated.am(2);
-  
-  // // 발행 (std::move 사용)
-  // imu_interp_pub->publish(std::move(imu_msg));
-
   // 사용한 데이터까지 삭제
   if (it_before != imu_queue.end() && std::next(it_before) != imu_queue.end()) 
   {
@@ -589,7 +585,12 @@ void ROS2Visualizer::imu_slot_callback() {
   if (thread_update_running)
     return;
   thread_update_running = true;
-  std::thread thread([&] {
+  
+  // 🔥 FIX: 값 복사로 메모리 안전성 확보
+  double imu_ts = interpolated.timestamp;
+  double timestamp_imu_inC = imu_ts - _app->get_state()->_calib_dt_CAMtoIMU->value()(0);
+  
+  std::thread thread([this, imu_ts, timestamp_imu_inC] {
     // Lock on the queue (prevents new images from appending)
     std::lock_guard<std::mutex> lck(camera_queue_mtx);
 
@@ -607,7 +608,6 @@ void ROS2Visualizer::imu_slot_callback() {
 
       // Loop through our queue and see if we are able to process any of our camera measurements
       // We are able to process if we have at least one IMU measurement greater than the camera time
-      double timestamp_imu_inC = interpolated.timestamp - _app->get_state()->_calib_dt_CAMtoIMU->value()(0);
       while (!camera_queue.empty() && camera_queue.at(0).timestamp < timestamp_imu_inC) {
         auto rT0_1 = boost::posix_time::microsec_clock::local_time();
         double update_dt = 100.0 * (timestamp_imu_inC - camera_queue.at(0).timestamp);
@@ -621,7 +621,7 @@ void ROS2Visualizer::imu_slot_callback() {
       
       // Also process any wheel odometry measurements that are "old enough"
       std::lock_guard<std::mutex> wheel_lck(wheel_odom_queue_mtx);
-      while (!wheel_odom_queue.empty() && (wheel_odom_queue.front()->header.stamp.sec + wheel_odom_queue.front()->header.stamp.nanosec*1e-9) < interpolated.timestamp) {
+      while (!wheel_odom_queue.empty() && (wheel_odom_queue.front()->header.stamp.sec + wheel_odom_queue.front()->header.stamp.nanosec*1e-9) < imu_ts) {
           _app->feed_measurement_wheel(wheel_odom_queue.front());
           wheel_odom_queue.pop_front();
       }
@@ -754,6 +754,56 @@ void ROS2Visualizer::callback_wheel_odometry(const nav_msgs::msg::Odometry::Shar
         std::lock_guard<std::mutex> lck(wheel_odom_queue_mtx);
         wheel_odom_queue.push_back(msg);
     }
+}
+
+void ROS2Visualizer::callback_reset_request(const std_msgs::msg::Empty::SharedPtr msg) {
+  (void)msg;
+  
+  // Set reset request flag (will be processed by reset check timer)
+  std::lock_guard<std::mutex> lock(_process_and_reset_mutex);
+  is_reset_requested_ = true;
+}
+
+void ROS2Visualizer::check_reset_request() {
+  // Check for reset request (rising edge detection)
+  std::lock_guard<std::mutex> lock(_process_and_reset_mutex);
+  
+  if (!last_reset_request_ && is_reset_requested_) {
+    RCLCPP_INFO(_node->get_logger(), "Reset request detected - performing OpenVINS reset...");
+    
+    // 1. Reset the entire VIO system
+    _app->reset();
+    
+    // 2. Clear all local queues and state in the visualizer
+    clear_queues_for_reset();
+    
+    RCLCPP_INFO(_node->get_logger(), "OpenVINS has been reset successfully!");
+  }
+  last_reset_request_ = is_reset_requested_;
+}
+
+void ROS2Visualizer::clear_queues_for_reset() {
+  // Lock all mutexes and clear the queues
+  {
+    std::lock_guard<std::mutex> lock(imu_queue_mtx);
+    imu_queue.clear();
+  }
+  {
+    std::lock_guard<std::mutex> lock(camera_queue_mtx);
+    camera_queue.clear();
+  }
+  {
+    std::lock_guard<std::mutex> lock(wheel_odom_queue_mtx);
+    wheel_odom_queue.clear();
+  }
+  
+  // Also clear the pose history vectors
+  poses_imu.clear();
+  poses_gt.clear();
+  
+  // 🔥 FIX: 추가 상태 초기화
+  camera_last_timestamp.clear();  // 카메라 타임스탬프 기록 초기화
+  thread_update_running = false;   // 스레드 상태 초기화
 }
 
 void ROS2Visualizer::publish_state() {

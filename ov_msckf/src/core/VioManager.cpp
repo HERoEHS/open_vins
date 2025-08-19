@@ -178,6 +178,194 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
     );
   }
 }
+
+void VioManager::reset() {
+  PRINT_INFO(RED "!!!!!!!!!!!! VioManager::reset() starting !!!!!!!!!!!!\n" RESET);
+  
+  // Reset initialization flag
+  is_initialized_vio = false;
+  timelastupdate = -1;
+  startup_time = -1;
+  distance = 0;
+  dt = 0;
+  
+  // Reset state flags
+  did_zupt_update = false;
+  pose_correction_applied = false;
+  has_moved_since_zupt = false;
+  
+  // Clear good features
+  good_features_MSCKF.clear();
+  
+  // Reset active tracks
+  active_tracks_time = -1;
+  active_tracks_posinG.clear();
+  active_tracks_uvd.clear();
+  active_feat_linsys_A.clear();
+  active_feat_linsys_b.clear();
+  active_feat_linsys_count.clear();
+  
+  // Re-create the state with zero initial conditions
+  state = std::make_shared<State>(params.state_options);
+  
+  // Set IMU state to zero (0,0,0,0,0,0,0 means identity quaternion + zero position/velocity/biases)
+  Eigen::Matrix<double, 16, 1> zero_state = Eigen::Matrix<double, 16, 1>::Zero();
+  zero_state(3) = 1.0; // Set quaternion w component to 1 for identity quaternion
+  state->_imu->set_value(zero_state);
+  state->_imu->set_fej(zero_state);
+  
+  // Set IMU intrinsics (restore calibration parameters)
+  state->_calib_imu_dw->set_value(params.vec_dw);
+  state->_calib_imu_dw->set_fej(params.vec_dw);
+  state->_calib_imu_da->set_value(params.vec_da);
+  state->_calib_imu_da->set_fej(params.vec_da);
+  state->_calib_imu_tg->set_value(params.vec_tg);
+  state->_calib_imu_tg->set_fej(params.vec_tg);
+  state->_calib_imu_GYROtoIMU->set_value(params.q_GYROtoIMU);
+  state->_calib_imu_GYROtoIMU->set_fej(params.q_GYROtoIMU);
+  state->_calib_imu_ACCtoIMU->set_value(params.q_ACCtoIMU);
+  state->_calib_imu_ACCtoIMU->set_fej(params.q_ACCtoIMU);
+  
+  // Restore camera-IMU timeoffset
+  Eigen::VectorXd temp_camimu_dt;
+  temp_camimu_dt.resize(1);
+  temp_camimu_dt(0) = params.calib_camimu_dt;
+  state->_calib_dt_CAMtoIMU->set_value(temp_camimu_dt);
+  state->_calib_dt_CAMtoIMU->set_fej(temp_camimu_dt);
+  
+  // Restore camera intrinsics and extrinsics
+  for (int i = 0; i < state->_options.num_cameras; i++) {
+    state->_cam_intrinsics.at(i)->set_value(params.camera_intrinsics.at(i)->get_value());
+    state->_cam_intrinsics.at(i)->set_fej(params.camera_intrinsics.at(i)->get_value());
+    state->_calib_IMUtoCAM.at(i)->set_value(params.camera_extrinsics.at(i));
+    state->_calib_IMUtoCAM.at(i)->set_fej(params.camera_extrinsics.at(i));
+  }
+  
+  // Set initial covariance (similar to initialize_with_gt but with larger uncertainty)
+  std::vector<std::shared_ptr<ov_type::Type>> order = {state->_imu};
+  Eigen::MatrixXd Cov = std::pow(0.05, 2) * Eigen::MatrixXd::Identity(state->_imu->size(), state->_imu->size());
+  Cov.block(0, 0, 3, 3) = std::pow(0.1, 2) * Eigen::Matrix3d::Identity();   // q (larger uncertainty)
+  Cov.block(3, 3, 3, 3) = std::pow(0.1, 2) * Eigen::Matrix3d::Identity();  // p (larger uncertainty)
+  Cov.block(6, 6, 3, 3) = std::pow(0.1, 2) * Eigen::Matrix3d::Identity();  // v (larger uncertainty)
+  StateHelper::set_initial_covariance(state, Cov, order);
+  
+  // Reset timestamp to current time (will be set properly on next measurement)
+  state->_timestamp = -1;
+  
+  // 🔥 FIX: 내부 버퍼 완전 초기화를 위해 객체 재생성
+  // Re-create propagator to clear all IMU buffers
+  propagator = std::make_shared<Propagator>(params.imu_noises, params.gravity_mag);
+  
+  // Re-create initializer to clear all initialization data
+  initializer = std::make_shared<ov_init::InertialInitializer>(params.init_options, trackFEATS->get_feature_database());
+  
+  // Re-create ZUPT updater if enabled
+  if (params.try_zupt) {
+    updaterZUPT = std::make_shared<UpdaterZeroVelocity>(params.zupt_options, params.imu_noises, trackFEATS->get_feature_database(),
+                                                        propagator, params.gravity_mag, params.zupt_max_velocity,
+                                                        params.zupt_noise_multiplier, params.zupt_max_disparity);
+  }
+  
+  // Re-create wheel odometry updater if enabled
+  if (params.use_wheel_odom) {
+    updaterWheelOdom = std::make_shared<UpdaterWheelOdom>(
+      params.wheel_odom_R_IB,
+      params.wheel_odom_t_IB,
+      params.wheel_odom_noise_vx,
+      params.wheel_odom_noise_vy,
+      params.wheel_odom_noise_vz,
+      params.wheel_odom_noise_wx,
+      params.wheel_odom_noise_wy,
+      params.wheel_odom_noise_wz
+    );
+  }
+  
+  // Re-create trackers to clear internal tracking state
+  int init_max_features = std::floor((double)params.init_options.init_max_features / (double)params.state_options.num_cameras);
+  if (params.use_klt) {
+    trackFEATS = std::make_shared<ov_core::TrackKLT>(state->_cam_intrinsics_cameras, init_max_features,
+                                                     state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
+                                                     params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist);
+  } else {
+    trackFEATS = std::make_shared<ov_core::TrackDescriptor>(
+        state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
+        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio);
+  }
+  
+  if (params.use_aruco) {
+    trackARUCO = std::make_shared<ov_core::TrackAruco>(state->_cam_intrinsics_cameras, state->_options.max_aruco_features,
+                                                       params.use_stereo, params.histogram_method, params.downsize_aruco);
+  }
+  
+  PRINT_INFO(RED "!!!!!!!!!!!! VioManager::reset() finished - ready for re-initialization !!!!!!!!!!!!\n" RESET);
+}
+
+void VioManager::reset_with_state_preservation(bool preserve_orientation, bool preserve_velocity, bool preserve_biases) {
+  PRINT_INFO(YELLOW "!!!!!!!!!!!! VioManager::reset_with_state_preservation() starting !!!!!!!!!!!!\n" RESET);
+  
+  // Save current state before reset
+  Eigen::Vector4d saved_quat = Eigen::Vector4d::Zero();
+  Eigen::Vector3d saved_vel = Eigen::Vector3d::Zero();
+  Eigen::Vector3d saved_bias_g = Eigen::Vector3d::Zero();
+  Eigen::Vector3d saved_bias_a = Eigen::Vector3d::Zero();
+  
+  if (is_initialized_vio && state != nullptr) {
+    if (preserve_orientation) {
+      saved_quat = state->_imu->quat();
+      saved_quat.normalize(); // 🔥 FIX: 쿼터니언 정규화
+    }
+    if (preserve_velocity) saved_vel = state->_imu->vel();
+    if (preserve_biases) {
+      saved_bias_g = state->_imu->bias_g();
+      saved_bias_a = state->_imu->bias_a();
+    }
+    
+    // Clear all SLAM features and clones to clean up state
+    // Mark all SLAM features for marginalization
+    for (auto &f : state->_features_SLAM) {
+      f.second->should_marg = true;
+    }
+    StateHelper::marginalize_slam(state);
+    
+    // Remove all clones except the most recent one
+    while ((int)state->_clones_IMU.size() > 1) {
+      StateHelper::marginalize_old_clone(state);
+    }
+  }
+  
+  // Perform normal reset first
+  reset();
+  
+  // Restore preserved state
+  if (preserve_orientation && saved_quat.norm() > 0.1) {
+    Eigen::Matrix<double, 16, 1> current_state = state->_imu->value();
+    current_state.block(0, 0, 4, 1) = saved_quat;
+    state->_imu->set_value(current_state);
+    state->_imu->set_fej(current_state);
+    PRINT_INFO(CYAN "[SMART RESET] Preserved orientation\n" RESET);
+  }
+  
+  if (preserve_velocity && saved_vel.norm() > 0.01) {
+    Eigen::Matrix<double, 16, 1> current_state = state->_imu->value();
+    current_state.block(7, 0, 3, 1) = saved_vel;
+    state->_imu->set_value(current_state);
+    state->_imu->set_fej(current_state);
+    PRINT_INFO(CYAN "[SMART RESET] Preserved velocity: %.3f, %.3f, %.3f\n" RESET, saved_vel(0), saved_vel(1), saved_vel(2));
+  }
+  
+  if (preserve_biases && (saved_bias_g.norm() > 0.001 || saved_bias_a.norm() > 0.001)) {
+    Eigen::Matrix<double, 16, 1> current_state = state->_imu->value();
+    current_state.block(10, 0, 3, 1) = saved_bias_g;
+    current_state.block(13, 0, 3, 1) = saved_bias_a;
+    state->_imu->set_value(current_state);
+    state->_imu->set_fej(current_state);
+    PRINT_INFO(CYAN "[SMART RESET] Preserved biases - gyro: %.4f, %.4f, %.4f | accel: %.4f, %.4f, %.4f\n" RESET, 
+               saved_bias_g(0), saved_bias_g(1), saved_bias_g(2), saved_bias_a(0), saved_bias_a(1), saved_bias_a(2));
+  }
+  
+  PRINT_INFO(YELLOW "!!!!!!!!!!!! VioManager::reset_with_state_preservation() finished !!!!!!!!!!!!\n" RESET);
+}
+
 void VioManager::feed_measurement_wheel(const nav_msgs::msg::Odometry::SharedPtr& odom) {
     if (is_initialized_vio && updaterWheelOdom) {
         updaterWheelOdom->update(state, *odom);

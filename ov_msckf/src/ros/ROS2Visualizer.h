@@ -44,6 +44,7 @@
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include "std_msgs/msg/bool.hpp"
+#include <std_msgs/msg/empty.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -131,9 +132,18 @@ public:
   /// Callback for wheel odometry information
   void callback_wheel_odometry(const nav_msgs::msg::Odometry::SharedPtr msg);
 
+  /// Callback for reset request
+  void callback_reset_request(const std_msgs::msg::Empty::SharedPtr msg);
+
   void imu_slot_callback();
 
   void publish_zupt_status(bool zupt_active);
+
+  /// Clear all queues for reset
+  void clear_queues_for_reset();
+
+  /// Check and process reset requests (called by timer)
+  void check_reset_request();
 
 
 
@@ -188,11 +198,13 @@ protected:
   std::shared_ptr<tf2_ros::TransformBroadcaster> mTfBr;
 
   rclcpp::TimerBase::SharedPtr imu_timer;
+  rclcpp::TimerBase::SharedPtr reset_check_timer;
 
   // Our subscribers and camera synchronizers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
   rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr sub_manager_pose;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_wheel_odometry;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr sub_reset_request;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> subs_cam;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> sync_pol;
   std::vector<std::shared_ptr<message_filters::Synchronizer<sync_pol>>> sync_cam;
@@ -236,6 +248,13 @@ protected:
   /// Queue for wheel odometry measurements and its mutex
   std::mutex wheel_odom_queue_mtx;
   std::deque<nav_msgs::msg::Odometry::SharedPtr> wheel_odom_queue;
+
+  /// Mutex to ensure thread-safe access during processing and reset
+  std::mutex _process_and_reset_mutex;
+
+  /// Reset request state management (to prevent continuous reset)
+  bool is_reset_requested_ = false;
+  bool last_reset_request_ = false;
 
   // Last timestamp we visualized at
   double last_visualization_timestamp = 0;
